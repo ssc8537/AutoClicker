@@ -31,3 +31,7 @@ Desktop.ini
 # PySide6 相关
 *.ui.autoh
 *.rcc
+
+# 本地推送脚本（不推送到 GitHub）
+_push_to_github.bat
+_update_*.py
