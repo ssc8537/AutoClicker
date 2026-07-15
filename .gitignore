@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+**/logs/*.log
+**/logs/*.log.*
+
+# Environment
+.env
+venv/
+.venv/
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# 优秀案例参考代码（太大，保留本地，不上传 GitHub）
+/my-automation-tool/优秀案例1-Quickinput/
+/my-automation-tool/优秀案例2-okww/
+
+# PySide6 相关
+*.ui.autoh
+*.rcc
