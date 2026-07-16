@@ -8,3 +8,5 @@
 - 两份优秀案例只读且不提交。角色按需读取索引和源码，禁止把案例代码复制进本项目。
 
 共同知识入口：`my-automation-tool/docs/reference/`、`my-automation-tool/PROJECT_SPEC.md`、`PROJECT_STRUCTURE.md`。
+
+**最高优先级：** 任何负责人接手或准备写代码前，必须先使用 `requirement-certifier.md`。完整门槛在根目录 `AGENTS.md` 和 `docs/requirements/REQUIREMENT_READINESS_GATE.md`。

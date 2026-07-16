@@ -7,12 +7,20 @@
 - 已验收运行能力：固定 F9 Python 宏、F12 全局开关、OSD、`switch/down`、`COUNT`、`SPEED`、热重载、可中断单实例播放器。
 - 脚本格式为可信本地 Python；JSON 仅历史材料，绝不重新作为运行格式。
 
+## 当前需求信心状态
+
+对下一候选任务“Quickinput 风格四页 UI 外壳与红库主题”的结论为 **NOT READY**。必须先完成 `docs/requirements/V021_UI_SHELL_ACCEPTANCE_SPEC.md` 的七项待确认内容，再重新调用 RequirementCertifier。此期间只允许完善需求文档，不允许写 UI 代码或改变运行行为。
+
+## 第一强制步骤：需求信心审查
+
+无论接到什么新任务，先读根目录 `AGENTS.md` 并调用 `.codex/agents/requirement-certifier.md`。只有其按 `docs/requirements/REQUIREMENT_READINESS_GATE.md` 输出 READY，才可写代码或改变运行配置；NOT READY 时只能完善需求文档或向用户澄清。
+
 ## 必读顺序
 
 1. `README.md`、`PROJECT_STRUCTURE.md`、`my-automation-tool/PROJECT_SPEC.md`
 2. `docs/reference/QUICKINPUT_UI_REFERENCE_SPEC.md`
 3. `docs/reference/QUICKINPUT_ARCHITECTURE_REFERENCE.md`、`OK_WW_INPUT_ARCHITECTURE_REFERENCE.md`
-4. `.codex/agents/README.md` 与任务对应的角色配置
+4. `.codex/agents/README.md`、`requirement-certifier.md` 与任务对应的角色配置
 5. `USER_TEST_GUIDE.md`、`REVIEW_LOG.md`、本文件
 
 ## 下一项唯一开发任务

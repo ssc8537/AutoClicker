@@ -40,6 +40,12 @@
 
 已参考 Quickinput 的内存配置提交模型，新增按 F9 启动前的 JSON 严格重载：下一次 F9 使用新保存的 `count`、`mode`、`speed` 和步骤，无须重启；正在播放的序列不变。无效 JSON 会阻止启动、保留最后有效配置并显示错误 OSD。18 项自动测试通过；待用户按教程验证保存 `count: 1` 与 `count: 0` 后均可立刻生效。
 
+## 审查 #21 | 2026-07-16 | 操作者：RequirementCertifier
+
+对“Quickinput 风格四页 UI 外壳与红库主题”进行首次需求信心审查，结论为 **NOT READY**。已锁定页面、F9/F12/OSD 不回归、F2 只占位、功能页无运行代码等边界；但窗口与视觉验收标准、各页控件交互、F12 在设置页的连接方式、禁用控件表现、测试技术边界尚未决定。
+
+在 `docs/requirements/V021_UI_SHELL_ACCEPTANCE_SPEC.md` 的待确认项全部关闭并复审 READY 前，禁止创建或修改 UI 运行代码、注册 F2、让控件写入 Python 宏配置或改变 F9/F12/OSD。`CURRENT_PRODUCT_DECISIONS.md` 已作为旧规格冲突时的最高产品决定来源。
+
 ## 审查 #20 | 2026-07-16 | 操作者：Codex
 
 阶段 3 的 16 项自动测试与语法编译在提交前复跑通过。已创建并推送 GitHub 基线分支 `codex/v019-stage3-accepted-baseline`（提交 `02536f7`）及同名标签；两份优秀案例均由 `.gitignore` 排除，未进入 Git。

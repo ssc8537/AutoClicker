@@ -17,8 +17,11 @@ python main.py
 - “让 RealtimeChecker 检查这次改动是否偏离 Quickinput。”
 - “让 TestEngineer 给我准备人工测试教程。”
 - “让 Handover 写给下一位 AI 的交接。”
+- “让 RequirementCertifier 审查这个需求是否已经可以写代码。”
 
 总负责人会读取 `.codex/agents/` 对应角色规范并派发任务。优秀案例不会上传或提交，只在本机查阅。
+
+每次新功能或修改开始前，RequirementCertifier 必须给出 `READY`；如果是 `NOT READY`，团队只会完善需求文档，不会开始写代码。这是本项目的最高工作门槛。
 
 ## 你需要人工测试的节点
 
