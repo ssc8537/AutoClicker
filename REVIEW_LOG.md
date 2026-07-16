@@ -40,6 +40,12 @@
 
 已参考 Quickinput 的内存配置提交模型，新增按 F9 启动前的 JSON 严格重载：下一次 F9 使用新保存的 `count`、`mode`、`speed` 和步骤，无须重启；正在播放的序列不变。无效 JSON 会阻止启动、保留最后有效配置并显示错误 OSD。18 项自动测试通过；待用户按教程验证保存 `count: 1` 与 `count: 0` 后均可立刻生效。
 
+## 审查 #20 | 2026-07-16 | 操作者：Codex
+
+阶段 3 的 16 项自动测试与语法编译在提交前复跑通过。已创建并推送 GitHub 基线分支 `codex/v019-stage3-accepted-baseline`（提交 `02536f7`）及同名标签；两份优秀案例均由 `.gitignore` 排除，未进入 Git。
+
+随后建立 v020 团队角色配置、项目 README/结构/交接资料、Quickinput 源码按钮级 UI 规格、两个案例知识索引，并复制前四张 UI 参考图到项目自有文档目录。图片 5、Quickinput/ok-ww 源码、JSON/QIM 运行格式、图像识别和未验收扩展功能均明确排除。下一阶段只可做四页 UI 外壳和红库主题，F2 只预留。
+
 ## 审查 #19 | 2026-07-16 | 操作者：Codex
 
 用户确认阶段 2 的全部手动测试通过，并更新产品方向：脚本只用可信本地 Python，不再使用 JSON。阶段 3 已新增 `scripts/hello_world.py`、Python 宏加载/热重载、`ScriptPlayer.tap/sleep` 和通用 `SequencePlayer`；Quickinput 的热键框架和优秀案例 2 的小输入接口均被保留，图像识别与状态判断未引入。
