@@ -1,39 +1,59 @@
-# 下一位 AI：当前交接（v020）
+# 下一位 AI：当前交接（v020.3）
 
-## 当前完成情况
+## 第一身份与强制步骤
 
-- v019 是已推送 GitHub 的阶段 3 可回退基线：`codex/v019-stage3-accepted-baseline` 和同名标签。
-- 当前工作分支：`codex/v020-team-ui-spec`。本分支仅新增团队、案例和 UI 规格文档，不改变运行逻辑。
-- 已验收运行能力：固定 F9 Python 宏、F12 全局开关、OSD、`switch/down`、`COUNT`、`SPEED`、热重载、可中断单实例播放器。
-- 脚本格式为可信本地 Python；JSON 仅历史材料，绝不重新作为运行格式。
+主要 Agent 必须先读取根目录 `AGENTS.md` 和 `.codex/agents/1-project-lead.md`，以“项目负责人”身份接手。第一个员工调用必须是 RequirementCertifier；没有实施前 `READY`，不得写代码、改运行配置、重构或进入新阶段。
+
+项目负责人和全部专项员工永久统一使用 `GPT-5.6 Terra 高 / high`。项目文件不能强制平台实际模型；发现运行分配不一致时必须如实报告。
+
+## Git 与已验收基线
+
+- GitHub：`https://github.com/ssc8537/AutoClicker.git`。
+- 当前分支：`codex/v020-team-ui-spec`。
+- v019 阶段 3 基线：分支与标签均解析到 `02536f7`。
+- v020 团队/UI 规格：远端原提交 `b04728e`。
+- v020.1/v020.2：`546d899`、`06bef74` 已快进推送 GitHub。
+- v020.3 提交和远端 SHA 以当前分支最新 Git 记录为准；禁止强推。
+- 两份优秀案例只读、Git 忽略，禁止复制或提交源码。
+
+## v020.3 完成内容
+
+- 新增 `.codex/agents/1-project-lead.md`，作为唯一项目总入口。
+- 团队共 12 个角色：项目负责人和十一个专项员工；唯一职责见 `.codex/agents/README.md`。
+- RequirementCertifier 分为接手初审和实施前终审。初审缺口先由团队查文档、案例、代码、测试和日志，不能直接全部询问用户。
+- Handover 使用递增编号；本轮历史交接是 `2-PROJECT_LEAD_GOVERNANCE_V020.3.md`，下一编号从 `3-` 开始。
+- AntiHallucination 在初稿、提交前、重大里程碑和交接前检查新增/大改文件；超过 500 行且职责混杂时才提出拆分，并须另获重构 READY。
+
+## 需求与运行边界
+
+- 当前运行格式是可信本地 Python，不恢复 JSON/QIM。
+- F9 运行 Python 宏，F12 是唯一实际全局开关；F2 仅 UI 占位。
+- 已验收能力包括 F9/F12、OSD、`switch/down`、COUNT/SPEED、热重载、可中断播放和停止释放。
+- 未开发功能只能显示为禁用或“后续阶段”，不得伪装为可用。
+- 两份案例只用于查证设计；不引入图像识别、角色 AI、窗口匹配、录制、音效、鼠标执行或案例资产。
 
 ## 当前需求信心状态
 
-对下一候选任务“Quickinput 风格四页 UI 外壳与红库主题”的结论为 **NOT READY**。必须先完成 `docs/requirements/V021_UI_SHELL_ACCEPTANCE_SPEC.md` 的三项待确认内容，再重新调用 RequirementCertifier。此期间只允许完善需求文档，不允许写 UI 代码或改变运行行为。
+团队治理和项目负责人任务：**READY，已完成。**
 
-Quickinput 窗口规则已由 KnowledgeExpert 源码核对并写入 v021 规格；完整交接请直接使用 `COMPLETE_HANDOVER_V020.1.md`。当前仍有三项需求阻塞，未得到 READY 前不得编码。
+Quickinput 四页 UI 外壳：仍按既有结论保持 **NOT READY**。下一位负责人应先用本地证据关闭 `V021_UI_SHELL_ACCEPTANCE_SPEC.md` 的剩余技术项，再让 RequirementCertifier 做独立实施前终审；本交接不授权 UI 编码。
 
-## 第一强制步骤：需求信心审查
+## 验证结果
 
-无论接到什么新任务，先读根目录 `AGENTS.md` 并调用 `.codex/agents/requirement-certifier.md`。只有其按 `docs/requirements/REQUIREMENT_READINESS_GATE.md` 输出 READY，才可写代码或改变运行配置；NOT READY 时只能完善需求文档或向用户澄清。
+- `python -m unittest discover -s tests -v`：16/16 通过。
+- `python -m compileall -q main.py src scripts`：通过。
+- `git diff --check`：通过。
+- AntiHallucination：初稿检查 9 个文件；提交前终检覆盖 14 个新增/大改文件，最长 192 行，项目负责人配置 154 行。无文件超过 500 行，无需拆分。
+- 本轮未启动 GUI、未发送真实键盘或鼠标输入，无需用户人工测试。
 
 ## 必读顺序
 
-1. `README.md`、`PROJECT_STRUCTURE.md`、`my-automation-tool/PROJECT_SPEC.md`
-2. `docs/reference/QUICKINPUT_UI_REFERENCE_SPEC.md`
-3. `docs/reference/QUICKINPUT_ARCHITECTURE_REFERENCE.md`、`OK_WW_INPUT_ARCHITECTURE_REFERENCE.md`
-4. `.codex/agents/README.md`、`requirement-certifier.md` 与任务对应的角色配置
-5. `USER_TEST_GUIDE.md`、`REVIEW_LOG.md`、本文件
+1. `AGENTS.md`、`.codex/agents/1-project-lead.md`。
+2. `PROJECT_OUTLINE.md`、`REVIEW_LOG.md`、`PROJECT_STRUCTURE.md`。
+3. 本文件、`docs/requirements/CURRENT_PRODUCT_DECISIONS.md`、`V021_UI_SHELL_ACCEPTANCE_SPEC.md`。
+4. `docs/reference/QUICKINPUT_UI_REFERENCE_SPEC.md` 和两个案例架构索引。
+5. `.codex/agents/README.md` 及任务对应员工配置。
 
-## 下一项唯一开发任务
+## 下一项唯一候选任务
 
-做 Quickinput 风格的四页 UI 外壳和红库主题：宏库、触发、功能、设置。不得实现新的鼠标、窗口、录制、音效、定时、OCR、多脚本并发或自定义热键功能。
-
-- F9、F12 和现有 OSD 必须继续运行。
-- F2 仅显示预留位置，不能注册系统热键或改变 OSD。
-- 功能页控件全部禁用或明确标“后续阶段”。
-- 先自动回归，再让用户做视觉与 F9/F12 手动验收。
-
-## 团队状态
-
-十个角色配置位于 `.codex/agents/`；实际子 Agent 继承 Codex 平台模型设置。案例位于 `优秀案例1-Quickinput/`、`优秀案例2-okww/`，只读且 Git 忽略。
+由项目负责人组织 KnowledgeExpert、CodeExplorer 和 UIReferenceAnalyst，用优秀案例源码及现有规格自行关闭 v021 UI 的剩余技术项；只有 RequirementCertifier 给出实施前 READY 后，才允许制作四页 UI 外壳。任何实现都不得改变 F9、F12、F2、OSD 或输入行为。

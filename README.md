@@ -33,7 +33,9 @@ python -m compileall -q main.py src scripts
 
 ## 贡献与团队协作
 
-- 运行代码前先阅读 `PROJECT_STRUCTURE.md`、`my-automation-tool/PROJECT_SPEC.md` 与 `docs/handover/CURRENT_HANDOVER.md`。
+- 主要 Agent 先读取 `.codex/agents/1-project-lead.md`，以“项目负责人”身份统一管理团队。
+- 项目负责人和全部员工永久统一使用 `GPT-5.6 Terra 高 / high`；实际平台分配不一致时必须如实报告。
+- 运行代码前先阅读 `AGENTS.md`、`PROJECT_STRUCTURE.md`、`my-automation-tool/PROJECT_SPEC.md` 与 `docs/handover/CURRENT_HANDOVER.md`。
 - 团队角色配置位于 `.codex/agents/`；小白使用方法见 `my-automation-tool/docs/team/TEAM_USAGE_GUIDE.md`。
 - 两份优秀案例只在本地只读参考，禁止提交或复制源码。
 - 每次功能里程碑必须更新文档、测试记录、交接文档，并先创建可回退 Git 基线。

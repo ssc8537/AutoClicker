@@ -1,6 +1,6 @@
 # 项目审查日志（REVIEW LOG）
 
-> 当前版本：v014 | 最后更新：2026-07-15 | 操作者：Codex
+> 当前版本：v020.3 | 最后更新：2026-07-16 | 操作者：Codex
 >
 > **完整历史审查记录见 `my-automation-tool/docs/reviews/` 目录。** 本文件只保留当前状态、最近审查和可直接交接的信息。
 
@@ -13,8 +13,21 @@
 | 阶段 1：Hello World + 安全机制 | 用户已重新手动验收通过 |
 | 阶段 1.5：OSD | 核心开始/停止提示已由用户验收通过 |
 | Qt 热键线程安全 | 自动化与用户真实键盘测试均通过 |
-| 下一开发阶段 | 阶段 2 前的真实需求对齐审查 |
-| 当前快照 | `项目管理/v014/` |
+| 团队治理 | 项目负责人 + 十一个专项员工，流程已闭环 |
+| 下一开发阶段 | Quickinput 四页 UI 外壳，仍需独立实施前终审 |
+| 当前 Git 基线 | v019 `02536f7`；v020.2 `06bef74` 已推送 |
+
+## 审查 #22 | 2026-07-16 | 操作者：Codex + RequirementCertifier
+
+用户批准“v020.3 项目负责人提示词与团队协作闭环”。RequirementCertifier 实施前终审为 **READY**，允许范围仅为团队 Agent 配置、治理文档、交接和 Git 快进推送；明确禁止修改 UI、Python 运行代码、F9/F12/F2、OSD、依赖和两个优秀案例。
+
+已新增唯一入口 `.codex/agents/1-project-lead.md`，明确项目负责人负责范围、员工调度、证据整合、测试、Git 和交接。RequirementCertifier 改为接手初审与实施前终审两级门槛；遇到缺口必须先由 CodeExplorer、KnowledgeExpert 和需要时的 UIReferenceAnalyst 查询本地资料，只有不可推导且高影响的产品选择才询问用户。
+
+用户随后覆盖模型决定：项目负责人和全部员工永久统一为 `GPT-5.6 Terra 高 / high`。所有 12 个角色配置均已对齐；项目文件不能强制平台实际分配模型，发现不一致时必须如实报告。
+
+Handover 采用递增编号，当前登记为 `2-项目负责人提示词与团队流程审查`；`CURRENT_HANDOVER.md` 继续作为稳定入口。AntiHallucination 初稿检查 9 个文件，提交前终检覆盖 14 个新增/大改文件；最长为职责单一的 `REVIEW_LOG.md` 192 行，项目负责人配置 154 行，无文件超过 500 行，无需拆分。
+
+验证：`python -m unittest discover -s tests -v` 为 16/16 通过；`python -m compileall -q main.py src scripts` 通过；`git diff --check` 通过。未启动 GUI、未发送真实输入。本轮 v020.3 提交与远端结果以当前分支最新 Git 记录为准。
 
 ## 审查 #15 | 2026-07-16 | 操作者：Codex
 
