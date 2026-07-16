@@ -1,7 +1,20 @@
 {
   "global_disable_key": "f12",
-  "window_position": { "x": 100, "y": 100 },
-  "window_size": { "width": 800, "height": 600 },
+  "window_position": {
+    "x": 100,
+    "y": 100
+  },
+  "window_size": {
+    "width": 800,
+    "height": 600
+  },
   "default_speed": 1.0,
-  "log_level": "INFO"
+  "log_level": "INFO",
+  "popup_enabled": true,
+  "popup_position_x": 50,
+  "popup_position_y": 10,
+  "popup_size": 24,
+  "popup_duration_ms": 2000,
+  "popup_success_color": "#00FF00",
+  "popup_end_color": "#FF0000"
 }
