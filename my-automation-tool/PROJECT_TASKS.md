@@ -1,6 +1,8 @@
 # 项目总控任务清单
 
-> 项目名称：键盘自动化序列播放器 (MyAutoPlayer) | 最后更新：2026-07-15（审查 #14 后）
+> 项目名称：键盘自动化序列播放器 (MyAutoPlayer) | 历史任务清单；最后对齐：2026-07-16
+
+> **重要：** 本文件保留早期任务完成记录，存在 JSON、任意热键、窗口匹配、音效与多脚本等过期草案。当前路线、阶段状态和未来承诺以根目录 `STAGE_TEST_PLAN.md`、`docs/requirements/ROADMAP_ALIGNMENT_AUDIT.md`、`docs/requirements/CURRENT_PRODUCT_DECISIONS.md` 为准；不得根据本文件未勾选项直接开发。
 
 ---
 

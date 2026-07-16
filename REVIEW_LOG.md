@@ -51,6 +51,33 @@ v021 已在 `MainWindow._setup_ui()` 实现 Candy 粉红四页外壳：642×510 
 
 RealtimeChecker 确认本轮未改动 F9/F12、播放器、OSD、关闭清理或真实输入路径。AntiHallucination 提交前检查结论 PASS：`main.py` 434 行、UI 测试 79 行，均未超过 500 行且职责单一。当前状态为“自动验证完成，等待用户人工验收”；人工步骤见 `docs/test-plans/V021_UI_SHELL_MANUAL_TEST.md`。
 
+## 审查 #27 | 2026-07-16 | 操作者：项目负责人 + GoalAlignmentMonitor + RequirementCertifier + AntiHallucination
+
+### 目标、需求与幻觉结论
+
+- GoalAlignmentMonitor 首次结论：**DRIFT**。核心运行代码未偏离 Python-only、F9/F12、F2 占位、Candy 粉红 UI 和案例只读边界；偏离存在于治理和归档：旧交接错误要求 RequirementCertifier 为第一员工，路线图混入 JSON、窗口匹配、音效、多热键和多脚本等未锁定能力。
+- 已创建 `GoalAlignmentMonitor`，并在 `AGENTS.md`、项目负责人说明和团队索引锁定最高顺序：接手第一员工为 GoalAlignmentMonitor，第二员工为 RequirementCertifier。DocUpdater 与 Handover 被提升为每轮（含中断）强制归档链路。
+- RequirementCertifier：路线图纠偏和 V022 文档成果为条件 **READY**，只允许文档；UI、Python 宏库和所有候选扩展代码为 **NOT READY**。用户确认 V022 规格并取得新的终审前，禁止改 `main.py`、热键、OSD、输入或窗口规则。
+- AntiHallucination 首轮为 **NOT PASS**：V022/路线图草稿在审查日志归档前写出了“完成/READY”倾向。现已补写本记录和稳定交接，提交前仍需再次复查。所有本轮文档均低于 500 行；无拆分需要。先前关于新监控员配置乱码的报告已由 UTF-8 直接读取反证，保留为最终复查项目而非事实。
+
+### 路线图纠偏
+
+- `STAGE_TEST_PLAN.md` 现分开 S1、S1.5、历史 JSON 基线 H2、已验收单 Python 宏 S2、v021、V022、候选 C1 与候选 E+。旧阶段表“全部通过”不再被当作“完整项目完成”的证明。
+- S1.5 记录用户“完整通过”的陈述，但旧清单第 3–5 项仍未有逐项证据：第 3、4 项需补测或留痕；`popup_enabled` 是否仍属当前产品需求待后续裁决，禁止伪造自动测试通过。
+- 最终完整产品的扩展范围为 **UNKNOWN**：多 Python 宏、每宏热键、编辑/持久化和窗口/音效/鼠标/录制/定时均未锁定。优秀案例存在这些能力不构成本项目承诺。
+
+### 发布与当前状态
+
+- `bc06485` 已经普通快进发布至 GitHub `master` 与 `codex/v021-ui-shell`，远端默认 HEAD 与两个分支均为同一 SHA；GitHub 发布 SOP 已写入经验文档。
+- 当前工作区仅含文档/角色配置草稿，未改运行代码。V022 视觉规格与用户确认清单已生成，等待用户确认；本轮下一步是完成幻觉复查、文档一致性验证、归档提交与远端核验。
+
+### 最终对齐与提交门槛更新
+
+- GoalAlignmentMonitor 的第二次复审仍发现旧大纲把音效写成已承诺；该项已改为“候选，未承诺；需用户明确决定与独立 READY”。第三次复审结论为 **ALIGNED**：双员工顺序、角色 UTF-8、H2/S2/v021/V022/C1/E+ 分层、UNKNOWN 表述和未提交状态均一致。
+- RequirementCertifier 随后对提交前归档返回 **NOT READY**：`REVIEW_LOG.md`、`CURRENT_HANDOVER.md` 与 4 号交接尚未记录上述最终 ALIGNED，故不得提交。本文及两处归档现已同步该事实；下一步必须重新审查，且即使通过也只允许本轮文档/角色配置提交。
+- 代码许可不变：UI、F9/F12/F2、OSD、真实输入、Python 宏库 C1 和 E+ 候选扩展均 **NOT READY**；V022 仍等待用户视觉规格确认。
+- RequirementCertifier 最终结论：**READY（仅限本轮治理、路线图、V022 规格/确认清单、GitHub SOP、归档文档和角色配置提交）**。该 READY 不授权任何运行代码；提交前仍须 AntiHallucination 终检、引用/暂存范围检查和 GitHub 远端核验。
+
 ## 审查 #26 | 2026-07-16 | 操作者：用户 + 项目负责人
 
 用户反馈：v021 本轮测试目标完成度超过 90%。外观与只读状态没有发现 bug；F9、F12、F2 与安全回归全部正常；用户喜欢 Candy 粉红颜色。运行和安全人工验收通过。

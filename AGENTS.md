@@ -12,9 +12,17 @@
 
 项目负责人应尽量少问用户。遇到不确定项时，先查当前项目文档，再调用 CodeExplorer、KnowledgeExpert；UI 问题再调用 UIReferenceAnalyst。只有本地资料和两个优秀案例均不能回答，且选择会明显改变产品行为、安全、兼容性或验收结果时，才向用户提出最少的关键问题。
 
+## 总目标对齐与归档（最高优先级）
+
+每位接手负责人在读取项目负责人说明后，**第一个员工必须调用 GoalAlignmentMonitor（总目标对齐监控员）**，并将其结论与证据记录到 `REVIEW_LOG.md` 和 `CURRENT_HANDOVER.md`。该员工检查用户最新目标、当前产品决定、阶段测试总览、当前代码/验收状态及优秀案例边界是否一致，结论只能是 `ALIGNED`、`DRIFT` 或 `UNKNOWN`。
+
+**第二个员工必须调用 RequirementCertifier。** GoalAlignmentMonitor 负责发现“项目是否朝正确目标走”；RequirementCertifier 负责判断“本轮具体任务是否有 100% 证据可执行”。二者不可互相替代。任何 `DRIFT` 或 `UNKNOWN` 必须先由项目负责人组织证据核对、DocUpdater 归档和路线图纠正；未纠正前不得写代码或推进新阶段。
+
+DocUpdater 与 Handover 属于强制归档链路：每轮任务、重大检查、用户反馈、未完成工作、READY/NOT READY、ALIGNED/DRIFT/UNKNOWN、测试证据、Git 发布结果和下一步都必须写入 `PROJECT_OUTLINE.md`、`REVIEW_LOG.md`、`CURRENT_HANDOVER.md`；阶段结束时还必须生成递增编号的历史交接。任务中断也必须先归档已完成项、未完成项、风险和恢复入口，禁止只在聊天中保留事实。
+
 ## 需求就绪门槛（必须执行）
 
-在任何写代码、改运行配置、重构、创建 UI 功能或开始新阶段前，负责人必须先调用 **RequirementCertifier（需求信心审查员）**，并让其按 `my-automation-tool/docs/requirements/REQUIREMENT_READINESS_GATE.md` 生成结论。
+在 GoalAlignmentMonitor 完成后，任何写代码、改运行配置、重构、创建 UI 功能或开始新阶段前，负责人必须调用 **RequirementCertifier（需求信心审查员）**，并让其按 `my-automation-tool/docs/requirements/REQUIREMENT_READINESS_GATE.md` 生成结论。
 
 - 只有结论为 **READY** 时，才允许执行对应任务。
 - 结论为 **NOT READY** 时，禁止写代码或改变运行行为；只能继续阅读现有资料、查询两个优秀案例、整理需求、记录未决问题并向用户确认。

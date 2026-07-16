@@ -1,17 +1,18 @@
-# 阶段测试计划 - 阶段 3 到 4
+# 归档测试草案 - 旧阶段 3 到 4
 
-> 最后更新：2026-07-15 | 操作者：Codex
+> 最后更新：2026-07-16 | 操作者：项目负责人
 
 ---
 
 ## 核心思想
 
-用"正确打出 Hello World"来测试每个阶段的功能是否实现。
-每个阶段测试通过 = 软件该阶段功能正确。
+本文件的原始测试项与当前产品决定冲突，已归档，禁止执行或作为开发承诺。当前有效路线见 `STAGE_TEST_PLAN.md` 与 `docs/requirements/ROADMAP_ALIGNMENT_AUDIT.md`。
+
+旧表中的 JSON 脚本、KeyEdit 改绑、`up`、窗口匹配和音效均未获当前需求授权。v021/V022 的有效材料分别是 `docs/requirements/V021_UI_SHELL_ACCEPTANCE_SPEC.md`、`docs/requirements/V022_VISUAL_ALIGNMENT_SPEC.md` 与 `docs/test-plans/V022_VISUAL_SPEC_CONFIRMATION.md`。
 
 ---
 
-## 阶段 3 测试：热键绑定 UI + 脚本编辑器
+## 归档内容：旧“热键绑定 UI + 脚本编辑器”草案（不执行）
 
 ### 测试目标
 能在图形界面中管理脚本。左边显示脚本列表，右边显示详情面板。支持 KeyEdit 热键捕获、编辑、执行次数设置。
@@ -33,7 +34,7 @@
 
 ---
 
-## 阶段 4 测试：窗口匹配 + 高级功能
+## 归档内容：旧“窗口匹配 + 高级功能”草案（不执行）
 
 ### 4.1 窗口匹配测试
 

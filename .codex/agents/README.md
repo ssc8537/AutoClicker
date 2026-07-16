@@ -13,6 +13,7 @@
 
 | 序号 | 角色 | 配置 | 唯一职责 |
 |---|---|---|---|
+| 0 | GoalAlignmentMonitor | `0-goal-alignment-monitor.md` | 接手第一道门：监控总目标、阶段路线、边界和归档是否偏离 |
 | 1 | 项目负责人 | `1-project-lead.md` | 范围、顺序、员工调度、结果整合和最终交付 |
 | 2 | RequirementCertifier | `requirement-certifier.md` | 独立输出需求 `READY/NOT READY` |
 | 3 | KnowledgeExpert | `knowledge-expert.md` | 解释两个优秀案例的源码证据与适配边界 |
@@ -29,13 +30,14 @@
 ## 固定调用流程
 
 1. 项目负责人读取最高指令、当前状态、交接和 Git 状态。
-2. 第一个员工调用 RequirementCertifier 做接手初审。
-3. 初审有缺口时，先调用 CodeExplorer、KnowledgeExpert；UI 问题再调用 UIReferenceAnalyst。
-4. 项目负责人依据本地证据关闭可发现问题，只把真正高影响且不可推导的产品选择交给用户。
-5. RequirementCertifier 做实施前终审；只有 `READY` 才能实现或重构。
-6. TestEngineer 验证，RealtimeChecker 检查偏差，DocUpdater 和 ProjectManager 同步事实。
-7. AntiHallucination 在初稿、提交前、里程碑和交接检查文件长度与职责。
-8. ReleaseManager 提交并核验远端，Handover 最后更新稳定入口和编号历史。
+2. **第一个员工调用 GoalAlignmentMonitor**，输出 `ALIGNED/DRIFT/UNKNOWN` 并记录归档要求。
+3. **第二个员工调用 RequirementCertifier** 做接手初审；二者均通过相应门槛后才可推进。
+4. 有缺口时，先调用 CodeExplorer、KnowledgeExpert；UI 问题再调用 UIReferenceAnalyst。
+5. 项目负责人依据本地证据关闭可发现问题，只把真正高影响且不可推导的产品选择交给用户。
+6. RequirementCertifier 做实施前终审；只有 `READY` 才能实现或重构。
+7. TestEngineer 验证，RealtimeChecker 检查偏差；DocUpdater 和 ProjectManager 先归档事实。
+8. AntiHallucination 在初稿、提交前、里程碑和交接检查文件长度与职责。
+9. ReleaseManager 提交并核验远端；Handover 最后更新稳定入口和编号历史。任务中断也必须先完成 DocUpdater/Handover 归档。
 
 “自动更新”或“实时检查”都是负责人必须显式调用的检查点，不代表 Markdown 配置能够后台常驻。
 
