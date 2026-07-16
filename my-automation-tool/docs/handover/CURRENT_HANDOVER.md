@@ -9,7 +9,9 @@
 
 ## 当前需求信心状态
 
-对下一候选任务“Quickinput 风格四页 UI 外壳与红库主题”的结论为 **NOT READY**。必须先完成 `docs/requirements/V021_UI_SHELL_ACCEPTANCE_SPEC.md` 的七项待确认内容，再重新调用 RequirementCertifier。此期间只允许完善需求文档，不允许写 UI 代码或改变运行行为。
+对下一候选任务“Quickinput 风格四页 UI 外壳与红库主题”的结论为 **NOT READY**。必须先完成 `docs/requirements/V021_UI_SHELL_ACCEPTANCE_SPEC.md` 的三项待确认内容，再重新调用 RequirementCertifier。此期间只允许完善需求文档，不允许写 UI 代码或改变运行行为。
+
+Quickinput 窗口规则已由 KnowledgeExpert 源码核对并写入 v021 规格；完整交接请直接使用 `COMPLETE_HANDOVER_V020.1.md`。当前仍有三项需求阻塞，未得到 READY 前不得编码。
 
 ## 第一强制步骤：需求信心审查
 

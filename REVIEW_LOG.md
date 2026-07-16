@@ -46,6 +46,8 @@
 
 在 `docs/requirements/V021_UI_SHELL_ACCEPTANCE_SPEC.md` 的待确认项全部关闭并复审 READY 前，禁止创建或修改 UI 运行代码、注册 F2、让控件写入 Python 宏配置或改变 F9/F12/OSD。`CURRENT_PRODUCT_DECISIONS.md` 已作为旧规格冲突时的最高产品决定来源。
 
+知识专家随后核对 Quickinput `MainUi.ui/MainUi.cpp/type.cpp`：窗口默认 642×510，宽度固定 642，仅高度可在 510 至主屏高度间调整，启动恢复有效尺寸并居中，默认页索引为 0。用户确认宏库/触发页只读、设置页只显示 F12/OSD、功能页用“后续阶段”灰置占位；相关事实已同步到 v021 规格和完整交接。仍有三项阻塞，结论保持 NOT READY。
+
 ## 审查 #20 | 2026-07-16 | 操作者：Codex
 
 阶段 3 的 16 项自动测试与语法编译在提交前复跑通过。已创建并推送 GitHub 基线分支 `codex/v019-stage3-accepted-baseline`（提交 `02536f7`）及同名标签；两份优秀案例均由 `.gitignore` 排除，未进入 Git。
