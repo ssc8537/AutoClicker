@@ -8,7 +8,24 @@ from pathlib import Path
 
 import keyboard
 from PySide6.QtCore import QObject, Qt, Signal, Slot
-from PySide6.QtWidgets import QApplication, QLabel, QMainWindow, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QFormLayout,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QPushButton,
+    QTabWidget,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 from src.core.hotkey_manager import HotkeyManager, TriggerMode
 from src.core.sequence_player import SequencePlayer
@@ -153,12 +170,11 @@ class _HotkeyDispatcher(QObject):
 
 
 class MainWindow(QMainWindow):
-    """阶段 2 仍只保留安全状态提示，不新增配置 UI。"""
+    """阶段 3 运行入口和 v021 只读四页 UI 外壳。"""
 
     def __init__(self, macro_runtime: PythonMacroRuntime):
         super().__init__()
-        self.setWindowTitle("MyAutoPlayer — 键盘自动化序列播放器")
-        self.resize(600, 400)
+        self.setWindowTitle("MyAutoPlayer")
         self._macro_runtime = macro_runtime
         self._hotkey_mgr: HotkeyManager | None = None
         self._setup_ui()
@@ -169,17 +185,181 @@ class MainWindow(QMainWindow):
         self._setup_hotkey()
 
     def _setup_ui(self) -> None:
+        self.setFixedWidth(642)
+        self.setMinimumHeight(510)
+        screen = QApplication.primaryScreen()
+        if screen is not None:
+            self.setMaximumHeight(screen.availableGeometry().height())
+        self.resize(642, 510)
+
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         layout = QVBoxLayout(central_widget)
+        layout.setContentsMargins(1, 1, 1, 1)
+        layout.setSpacing(0)
+
+        tabs = QTabWidget()
+        tabs.setObjectName("main_tabs")
+        tabs.setDocumentMode(True)
+        tabs.setUsesScrollButtons(False)
+        tabs.addTab(self._build_macro_page(), "宏库")
+        tabs.addTab(self._build_trigger_page(), "触发")
+        tabs.addTab(self._build_features_page(), "功能")
+        tabs.addTab(self._build_settings_page(), "设置")
+        layout.addWidget(tabs)
+        self._tabs = tabs
+        self.setStyleSheet(
+            """
+            QMainWindow, QWidget { background: #FDF; color: black; font-family: "Microsoft YaHei"; font-size: 12px; }
+            QTabBar::tab { background: #FCE; min-width: 160px; max-width: 160px; height: 40px; padding: 0; font-size: 18px; font-weight: bold; }
+            QTabBar::tab:hover { background: #FBE; }
+            QTabBar::tab:selected { background: #FDF; }
+            QGroupBox { border: 1px solid #D8A7C7; margin-top: 8px; padding-top: 8px; font-weight: bold; }
+            QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }
+            QLineEdit, QComboBox { background: #FFF5FF; border: 1px solid #D8A7C7; padding: 4px; min-height: 22px; }
+            QTableWidget { background: white; border: 1px solid #D8A7C7; gridline-color: #F0CDE0; }
+            QHeaderView::section { background: #FFF0FF; border: none; padding: 4px; font-weight: bold; }
+            QPushButton { background: #FCE; border: 1px solid #D8A7C7; padding: 5px 10px; }
+            QPushButton:hover:!disabled { background: #FBE; }
+            QPushButton:disabled, QCheckBox:disabled, QComboBox:disabled { color: #777; background: #F7EAF1; }
+            """
+        )
+        self._center_on_screen()
+
+    def _center_on_screen(self) -> None:
+        screen = QApplication.primaryScreen()
+        if screen is None:
+            return
+        frame = self.frameGeometry()
+        frame.moveCenter(screen.availableGeometry().center())
+        self.move(frame.topLeft())
+
+    @staticmethod
+    def _readonly_field(value: str) -> QLineEdit:
+        field = QLineEdit(value)
+        field.setReadOnly(True)
+        field.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        return field
+
+    @staticmethod
+    def _disabled_button(text: str) -> QPushButton:
+        button = QPushButton(text)
+        button.setEnabled(False)
+        return button
+
+    def _build_macro_page(self) -> QWidget:
+        page = QWidget()
+        layout = QHBoxLayout(page)
+        layout.setContentsMargins(10, 10, 10, 10)
+
+        table = QTableWidget(1, 3)
+        table.setObjectName("macro_library_table")
+        table.setHorizontalHeaderLabels(["分组", "Python 宏", "状态"])
+        for column, value in enumerate(("默认", "hello_world.py", "只读")):
+            item = QTableWidgetItem(value)
+            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            table.setItem(0, column, item)
+        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        table.setColumnWidth(0, 80)
+        table.setColumnWidth(1, 190)
+        layout.addWidget(table, 1)
+
+        detail = QGroupBox("宏详情（只读）")
+        form = QFormLayout(detail)
+        form.addRow("脚本", self._readonly_field("hello_world.py"))
+        form.addRow("位置", self._readonly_field("scripts/hello_world.py"))
+        actions = QGridLayout()
+        for index, text in enumerate(("新建", "编辑", "保存", "刷新", "导入", "导出", "删除")):
+            actions.addWidget(self._disabled_button(text), index // 2, index % 2)
+        form.addRow(actions)
+        layout.addWidget(detail)
+        return page
+
+    def _build_trigger_page(self) -> QWidget:
+        page = QWidget()
+        layout = QHBoxLayout(page)
+        layout.setContentsMargins(10, 10, 10, 10)
+
+        table = QTableWidget(1, 3)
+        table.setObjectName("trigger_table")
+        table.setHorizontalHeaderLabels(["Python 宏", "热键", "状态"])
+        for column, value in enumerate(("hello_world.py", "F9", "只读")):
+            item = QTableWidgetItem(value)
+            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            table.setItem(0, column, item)
+        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        table.setColumnWidth(0, 190)
+        table.setColumnWidth(1, 80)
+        layout.addWidget(table, 1)
+
+        detail = QGroupBox("触发详情（只读）")
+        form = QFormLayout(detail)
+        form.addRow("热键", self._readonly_field("F9"))
+        form.addRow("MODE", self._readonly_field("switch / down"))
+        form.addRow("COUNT", self._readonly_field("来自 hello_world.py"))
+        form.addRow("SPEED", self._readonly_field("来自 hello_world.py"))
+        form.addRow(self._disabled_button("保存触发设置"))
+        layout.addWidget(detail)
+        return page
+
+    def _build_features_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(16, 16, 16, 16)
+        title = QLabel("功能（后续阶段）")
+        title.setStyleSheet("font-size: 18px; font-weight: bold;")
+        layout.addWidget(title)
+
+        group = QGroupBox("快速鼠标点击")
+        form = QFormLayout(group)
+        enabled = QCheckBox("启用快速鼠标点击（后续阶段）")
+        enabled.setEnabled(False)
+        form.addRow(enabled)
+        form.addRow("触发按键", self._disabled_combo("F2（仅占位）"))
+        form.addRow("点击模式", self._disabled_combo("单击"))
+        form.addRow("点击间隔", self._readonly_field("后续阶段"))
+        form.addRow(self._disabled_button("应用功能设置"))
+        layout.addWidget(group)
+        layout.addStretch()
+        return page
+
+    @staticmethod
+    def _disabled_combo(value: str) -> QComboBox:
+        combo = QComboBox()
+        combo.addItem(value)
+        combo.setEnabled(False)
+        return combo
+
+    def _build_settings_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(16, 16, 16, 16)
+
+        status_group = QGroupBox("当前运行状态")
+        status_layout = QVBoxLayout(status_group)
         self._status_label = QLabel("🔴 热键已禁用")
+        self._status_label.setObjectName("global_status_label")
         self._status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._status_label.setStyleSheet("font-size: 20px; color: red; font-weight: bold;")
-        layout.addWidget(self._status_label)
+        status_layout.addWidget(self._status_label)
+        status_layout.addWidget(QLabel("F12 是唯一实际的全局启用/禁用热键。"))
+        layout.addWidget(status_group)
+
+        settings_group = QGroupBox("设置（只读）")
+        form = QFormLayout(settings_group)
+        form.addRow("全局开关", self._readonly_field("F12"))
+        form.addRow("F2", self._readonly_field("仅 UI 占位，不注册"))
+        form.addRow("OSD", self._readonly_field("沿用既有红绿提示，不提供样式编辑"))
+        form.addRow("主题", self._readonly_field("Candy 粉红主题（固定）"))
+        layout.addWidget(settings_group)
+
         info = QLabel(_INSTRUCTION_TEXT)
         info.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        info.setStyleSheet("font-size: 16px; color: #333;")
         layout.addWidget(info)
+        layout.addStretch()
+        return page
 
     def _setup_hotkey(self) -> None:
         macro = self._macro_runtime.current()

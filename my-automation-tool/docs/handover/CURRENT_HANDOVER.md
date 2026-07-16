@@ -9,11 +9,12 @@
 ## Git 与已验收基线
 
 - GitHub：`https://github.com/ssc8537/AutoClicker.git`。
-- 当前分支：`codex/v020-team-ui-spec`。
+- 当前分支：`codex/v021-ui-shell`。
 - v019 阶段 3 基线：分支与标签均解析到 `02536f7`。
 - v020 团队/UI 规格：远端原提交 `b04728e`。
 - v020.1/v020.2：`546d899`、`06bef74` 已快进推送 GitHub。
-- v020.3 提交和远端 SHA 以当前分支最新 Git 记录为准；禁止强推。
+- v020.3 项目负责人及团队协作闭环：`bab26c3`，已推送 GitHub。
+- v021 UI 外壳尚待本分支提交；禁止强推。
 - 两份优秀案例只读、Git 忽略，禁止复制或提交源码。
 
 ## v020.3 完成内容
@@ -36,7 +37,7 @@
 
 团队治理和项目负责人任务：**READY，已完成。**
 
-Quickinput 四页 UI 外壳：仍按既有结论保持 **NOT READY**。下一位负责人应先用本地证据关闭 `V021_UI_SHELL_ACCEPTANCE_SPEC.md` 的剩余技术项，再让 RequirementCertifier 做独立实施前终审；本交接不授权 UI 编码。
+Quickinput 四页 UI 外壳：RequirementCertifier 实施前终审为 **READY**，实现和自动验证已完成。当前分支 `codex/v021-ui-shell` 已在 `MainWindow._setup_ui()` 加入 Candy 粉红四页外壳；F9/F12/OSD/播放器/F2 和真实输入边界未变。下一步只能等待用户记事本与视觉验收，不扩展功能。
 
 ## 验证结果
 
@@ -45,6 +46,13 @@ Quickinput 四页 UI 外壳：仍按既有结论保持 **NOT READY**。下一位
 - `git diff --check`：通过。
 - AntiHallucination：初稿检查 9 个文件；提交前终检覆盖 14 个新增/大改文件，最长 192 行，项目负责人配置 154 行。无文件超过 500 行，无需拆分。
 - 本轮未启动 GUI、未发送真实键盘或鼠标输入，无需用户人工测试。
+
+## v021 自动验证与人工验收
+
+- 23/23 单元测试、Python 编译、离屏截图和 `git diff --check` 通过。
+- RealtimeChecker：未发现 F9/F12、播放器、OSD、关闭清理或真实输入路径偏离。
+- AntiHallucination：PASS，`main.py` 434 行、UI 测试 79 行，均无需拆分。
+- 用户必须执行 `docs/test-plans/V021_UI_SHELL_MANUAL_TEST.md`。通过前不得宣称 v021 已人工验收，也不得实现下一阶段功能。
 
 ## 必读顺序
 
