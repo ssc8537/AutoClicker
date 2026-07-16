@@ -37,7 +37,7 @@
 
 团队治理和项目负责人任务：**READY，已完成。**
 
-Quickinput 四页 UI 外壳：RequirementCertifier READY、实现、自动验证和用户运行/安全验收均已完成。用户认可 Candy 粉红色与 F9/F12/F2 安全回归，但整体视觉只部分认可。V022 视觉规格与用户确认清单已产出，当前等待用户确认；不直接改 UI 或扩展功能。
+Quickinput 四页 UI 外壳：RequirementCertifier READY、实现、自动验证和用户运行/安全验收均已完成。用户认可 Candy 粉红色与 F9/F12/F2 安全回归；V022 视觉规格现已获用户确认。GoalAlignmentMonitor 为 ALIGNED，RequirementCertifier 已给出 V023 UI 视觉对齐实施 READY；下一步交给下一位 AI 实现，不扩展功能。
 
 ## 验证结果
 
@@ -52,25 +52,25 @@ Quickinput 四页 UI 外壳：RequirementCertifier READY、实现、自动验证
 - 23/23 单元测试、Python 编译、离屏截图和 `git diff --check` 通过。
 - RealtimeChecker：未发现 F9/F12、播放器、OSD、关闭清理或真实输入路径偏离。
 - AntiHallucination：PASS，`main.py` 434 行、UI 测试 79 行，均无需拆分。
-- 用户已确认外观/只读状态无 bug、F9/F12/F2 安全回归正常；视觉设计仍需 V022 对齐。不得把“运行验收通过”写成“视觉最终验收通过”。
+- 用户已确认外观/只读状态无 bug、F9/F12/F2 安全回归正常，并已确认 V022 视觉规格。V023 仅获视觉对齐实施 READY；不得把该 READY 写成宏库或候选扩展许可。
 
 ## 必读顺序
 
-1. `AGENTS.md`、`.codex/agents/1-project-lead.md`。
+1. `AGENTS.md`、`.codex/agents/1-project-lead.md`、根目录 `1-团队员工说明.md`。
 2. `PROJECT_OUTLINE.md`、`REVIEW_LOG.md`、`PROJECT_STRUCTURE.md`。
-3. 本文件、`docs/requirements/CURRENT_PRODUCT_DECISIONS.md`、`V021_UI_SHELL_ACCEPTANCE_SPEC.md`。
+3. 本文件、`5-V022_APPROVED_V023_HANDOVER.md`、`docs/requirements/CURRENT_PRODUCT_DECISIONS.md`、`V021_UI_SHELL_ACCEPTANCE_SPEC.md`、`V022_VISUAL_ALIGNMENT_SPEC.md`。
 4. `docs/reference/QUICKINPUT_UI_REFERENCE_SPEC.md` 和两个案例架构索引。
 5. `.codex/agents/README.md` 及任务对应员工配置。
 
 ## 下一项唯一候选任务
 
-V022：优秀案例 1 视觉与窗口规则对齐审查已完成规格，等待 `my-automation-tool/docs/test-plans/V022_VISUAL_SPEC_CONFIRMATION.md` 的用户确认。窗口最小高度继续保持 510，鼠标等功能仅灰置占位；任何后续实现都不得改变 F9、F12、F2、OSD 或输入行为，且必须重新获得 UI 实施 READY。
+V022：优秀案例 1 视觉与窗口规则对齐审查已获用户确认。V023 已获实施 READY：只调整 `MainWindow._setup_ui()` 与四页布局/样式；窗口最小高度继续保持 510，鼠标等功能仅灰置占位。任何实现都不得改变 F9、F12、F2、OSD 或输入行为，不得扩展宏库、编辑、保存、鼠标、窗口、音效、录制、定时或案例资源。
 
 阶段路线图已审查并纠偏：有效主线、历史 JSON 基线和候选扩展见 `my-automation-tool/docs/requirements/ROADMAP_ALIGNMENT_AUDIT.md`。不得把 Quickinput 的窗口匹配、音效、录制、鼠标、多脚本或 JSON/QIM 误写为当前承诺。
 
 ## 本轮治理审查与归档（2026-07-16）
 
-- GoalAlignmentMonitor 首次结论为 **DRIFT**：核心 Python-only、F9/F12、F2 占位、Candy UI 和案例只读边界未发现实现偏离；但旧交接仍把 RequirementCertifier 写为第一员工，且本轮审查/路线图草稿尚未归档。调用顺序现已更正为“GoalAlignmentMonitor 第一、RequirementCertifier 第二”；第三次复审为 **ALIGNED**，确认阶段分层、音效候选状态、UTF-8 角色配置和归档事实一致。
+- GoalAlignmentMonitor 首次结论为 **DRIFT**：核心 Python-only、F9/F12、F2 占位、Candy UI 和案例只读边界未发现实现偏离；但旧交接仍把 RequirementCertifier 写为第一员工，且本轮审查/路线图草稿尚未归档。调用顺序现已更正为“GoalAlignmentMonitor 第一、RequirementCertifier 第二”；其最终复审为 **ALIGNED**，确认阶段分层、音效候选状态、UTF-8 角色配置和归档事实一致。
 - 最终完整项目的扩展范围为 **UNKNOWN**：多 Python 宏、每宏热键、编辑/持久化、窗口、音效、鼠标、录制与定时尚未由用户锁定，均只能保留为候选，不能宣称“旧阶段全部完成即可交付完整项目”。
 - RequirementCertifier：路线图/V022/GitHub SOP 的文档与角色配置范围最终为 **READY**，允许本轮提交；此前因最终 ALIGNED 未归档产生的 **NOT READY** 已纠正。UI、宏库与候选扩展代码均 **NOT READY**。V022 用户确认前不改 UI。
 - AntiHallucination 首轮为 **NOT PASS**：发现 READY/完成状态在日志归档前被提前写入。日志、稳定交接与编号快照现已补齐；提交前必须再次复查才可提交。

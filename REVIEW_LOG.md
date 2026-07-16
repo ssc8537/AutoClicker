@@ -51,6 +51,16 @@ v021 已在 `MainWindow._setup_ui()` 实现 Candy 粉红四页外壳：642×510 
 
 RealtimeChecker 确认本轮未改动 F9/F12、播放器、OSD、关闭清理或真实输入路径。AntiHallucination 提交前检查结论 PASS：`main.py` 434 行、UI 测试 79 行，均未超过 500 行且职责单一。当前状态为“自动验证完成，等待用户人工验收”；人工步骤见 `docs/test-plans/V021_UI_SHELL_MANUAL_TEST.md`。
 
+## 审查 #28 | 2026-07-16 | 操作者：用户 + GoalAlignmentMonitor + 项目负责人
+
+用户明确确认：**“V022 视觉规格确认通过”**。GoalAlignmentMonitor 接手审查发现归档漂移：稳定入口仍写“等待用户确认”，但没有发现 Python-only、F9/F12、F2 占位、Candy UI、案例只读或运行代码层面的目标偏离。
+
+本记录、`PROJECT_OUTLINE.md`、`CURRENT_HANDOVER.md`、V022 规格和 5 号交接已同步用户确认。下一步唯一候选为 V023“仅四页 UI 视觉对齐实现”的 RequirementCertifier 审查；在新的 READY 前禁止改 UI、窗口规则、F9/F12/F2、OSD、播放器、真实输入、宏库和所有候选扩展。
+
+GoalAlignmentMonitor 第二次复审为 **ALIGNED**：用户确认已归档，核心目标、案例边界和候选扩展未混入 V023。RequirementCertifier 实施前终审为 **READY**：V023 只允许修改 `main.py` 的 `_setup_ui()` 与四个 `_build_*_page()` 的布局、文本和 Candy 样式，并可更新离屏 UI 测试断言；禁止所有运行行为、窗口规则、数据格式、保存行为和候选扩展改动。
+
+本轮只完成交接与文档归档，未写 V023 UI 代码。下一位 AI 实现后必须运行离屏 UI/完整单元测试、Python 编译和差异检查，再由用户在 Windows 100% 缩放对照四页外观并在记事本回归 F12、F9、F2。
+
 ## 审查 #27 | 2026-07-16 | 操作者：项目负责人 + GoalAlignmentMonitor + RequirementCertifier + AntiHallucination
 
 ### 目标、需求与幻觉结论
