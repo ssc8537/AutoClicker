@@ -41,7 +41,27 @@ def run(player):
 
 ### 共享键位语义函数
 
-`player.切换(1|2|3)`、`player.战技()`、`player.声骸()`、`player.大招()`、`player.跳跃()`、`player.处决()` 会发送“设置”页保存的共享物理键。默认分别是 1/2/3/E/Q/R/Space/F；每个宏都使用同一份 `config/game_keybinds.ini`。这些函数不识别角色、动画、CD 或其他游戏状态，只是复用 `player.tap()` 的可中断键盘发送路径；鼠标仍未发布。
+`player.切换(1|2|3)`、`player.战技()`、`player.声骸()`、`player.大招()`、`player.跳跃()`、`player.处决()` 会发送“设置”页保存的共享物理键。默认分别是 1/2/3/E/Q/R/Space/F；每个宏都使用同一份 `config/game_keybinds.ini`。这些函数不识别角色、动画、CD 或其他游戏状态，只是复用 `player.tap()` 的可中断键盘发送路径。
+
+### 鼠标函数（仅当前位置左/右键）
+
+```python
+def run(player):
+    player.mouse_down("left")
+    player.sleep(400)
+    player.mouse_up("left")
+    player.mouse_click("right")
+    player.mouse_repeat(3, "left", interval_ms=100)
+```
+
+| 函数 | 规则 |
+|---|---|
+| `player.mouse_down(button="left")` | 按住左/右键。相同按钮重复按下不会重复发送系统事件。 |
+| `player.mouse_up(button="left")` | 松开该播放器此前按住的左/右键；重复松开安全无副作用。 |
+| `player.mouse_click(button="left", hold_ms=10)` | 按下后 10ms 松开；F12、关闭或停止等待时仍会松开。 |
+| `player.mouse_repeat(count, button="left", interval_ms=10)` | 只能重复 1–100 次；两次点击之间按真实时间至少 10ms，不受 `SPEED` 缩短。 |
+
+`button` 只能是精确小写的 `"left"` 或 `"right"`。不支持中键、侧键、滚轮、移动鼠标或坐标点击。一个 F9 宏轮次无论正常结束、抛出错误、被 F12 停止或关闭窗口，都会释放它尚未释放的左右键；但仍应在脚本中按下后明确写出对应的 `mouse_up()`，让代码容易阅读和审查。
 
 ## 当前物理按键参考
 
@@ -53,8 +73,8 @@ def run(player):
 | R | 大招 | 可以通过 `player.tap` 发送物理键 |
 | Space | 跳跃 | 可以通过 `player.tap` 发送物理键 |
 | F | 处决 | 可以通过 `player.tap` 发送物理键 |
-| 鼠标左键 | 平A | 后续能力，当前不能调用 |
-| 鼠标右键 | 闪避 | 后续能力，当前不能调用 |
+| 鼠标左键 | 平A | 可用 `mouse_down` / `mouse_up` / `mouse_click` / `mouse_repeat` |
+| 鼠标右键 | 闪避 | 可用 `mouse_down` / `mouse_up` / `mouse_click` / `mouse_repeat` |
 
 这是默认物理键参考；设置页保存后，语义函数会使用新物理键。F2、F9、F12 为程序保留键，不能配置；重复或不支持的键也会被拒绝。
 
@@ -90,10 +110,10 @@ def run(player):
 
 ## 不找 AI 时如何自己写
 
-复制上面的完整文件结构，修改 `NAME`，在 `run(player)` 中按顺序写 `tap` 和 `sleep`。每个动作后加入足够等待；先保存，再在安全的目标窗口中按现有教程测试。不要改 F9、F12、F2，不要写鼠标、图像识别、角色判断或未发布函数。
+复制上面的完整文件结构，修改 `NAME`，在 `run(player)` 中按顺序写已发布的键盘或鼠标函数和 `sleep`。每个动作后加入足够等待；先保存，再在安全的目标窗口中按现有教程测试。不要改 F9、F12、F2，不要写坐标鼠标、图像识别、角色判断或未发布函数。
 
 ## 让 AI 协助时
 
 在软件中打开“AI 提示词”，可在窗口下方查看当前提示词和默认备份的绝对路径。所有作者和使用者都可用记事本直接编辑 `config/ai_prompt.txt`；保存后关闭并重新打开提示词窗口即可生效。编辑出错时，用 `config/ai_prompt.default.txt` 人工覆盖当前文件恢复。用户编辑的本地文字不代表软件新增能力；只有用户明确要求时，AI 才可更新随仓库交付的默认模板。
 
-填写 1号、2号、3号角色名称、动作、物理键和时序后复制。要求 AI 返回完整文件和角色编号注释，粘贴回编辑器保存。阅读 AI 返回内容，确认它只调用 `player.tap`、`player.sleep`，并遵守 50ms/1080ms 规则和 R 后 1500ms 规则，再进行人工测试。
+填写 1号、2号、3号角色名称、动作、物理键和时序后复制。要求 AI 返回完整文件和角色编号注释，粘贴回编辑器保存。阅读 AI 返回内容，确认它只调用当前已发布函数，并遵守 50ms/1080ms 规则和 R 后 1500ms 规则，再进行人工测试。软件内 AI 提示词尚未因 Stage 3M 自动更新；若要让其生成鼠标函数，必须由用户明确要求更新提示词。

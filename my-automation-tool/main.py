@@ -40,12 +40,20 @@ from src.core.macro_library import MacroEntry, MacroMetadata
 from src.ui.macro_library_panel import MacroLibraryPanel
 from src.ui.game_keybinds_panel import GameKeybindsPanel
 from src.ui.osd_window import OsdPopup
+from src.ui.window_chrome import (
+    VerticalResizeHandle,
+    WindowChromeController,
+    WindowTitleBar,
+    application_icon,
+)
 from src.utils.logger import get_logger, setup_logging
 
 logger = get_logger(__name__)
 _MACRO_ROOT = Path(__file__).resolve().parent / "macros"
+_APP_TITLE = "我的自动播放器"
+_WINDOWS_APP_ID = "ssc8537.MyAutoPlayer"
 _INSTRUCTION_TEXT = (
-    "MyAutoPlayer 已启动\n\n按 F12 启用/禁用热键\n"
+    "我的自动播放器已启动\n\n按 F12 启用/禁用热键\n"
     "先在宏库启用一个 Python 宏，再轻按 F9 运行\n"
     "（鼠标不要在程序窗口内）"
 )
@@ -184,7 +192,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self, macro_runtime: PythonMacroRuntime):
         super().__init__()
-        self.setWindowTitle("MyAutoPlayer")
+        self.setWindowTitle(_APP_TITLE)
         self._macro_runtime = macro_runtime
         self._hotkey_mgr: HotkeyManager | None = None
         self._macro_entries: list[MacroEntry] = []
@@ -202,6 +210,10 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "_active_macro_path"):
             self._active_macro_path = None
         self.setFixedWidth(642)
+        self.setWindowIcon(application_icon())
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window
+        )
         self.setMinimumHeight(510)
         screen = QApplication.primaryScreen()
         if screen is not None:
@@ -214,6 +226,10 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
+        self._title_bar = WindowTitleBar(central_widget)
+        self._window_chrome = WindowChromeController(self)
+        layout.addWidget(self._title_bar)
+
         tabs = QTabWidget()
         tabs.setObjectName("main_tabs")
         tabs.setDocumentMode(True)
@@ -222,12 +238,23 @@ class MainWindow(QMainWindow):
         tabs.addTab(self._build_trigger_page(), "触发")
         tabs.addTab(self._build_features_page(), "功能")
         tabs.addTab(self._build_settings_page(), "设置")
-        layout.addWidget(tabs)
+        layout.addWidget(tabs, 1)
+        self._vertical_resize_handle = VerticalResizeHandle(self)
+        layout.addWidget(self._vertical_resize_handle)
         self._tabs = tabs
+        self._window_chrome.install(self._title_bar)
         self._on_macro_entries_changed(self._macro_panel.entries)
         self.setStyleSheet(
             """
             QMainWindow, QWidget { background: #FDF; color: black; font-family: "Microsoft YaHei"; font-size: 12px; }
+            QWidget#window_title_bar { background: #FCE; border: 1px solid #D8A7C7; }
+            QLabel#window_title_label { color: #7A1E4C; font-size: 15px; font-weight: bold; }
+            QToolButton#window_hide_button, QToolButton#window_minimize_button, QToolButton#window_close_button { border: 1px solid #D8A7C7; border-radius: 13px; color: #5D294B; font-weight: bold; }
+            QToolButton#window_hide_button { background: #F6C5D9; }
+            QToolButton#window_minimize_button { background: #F8B8D0; }
+            QToolButton#window_close_button { background: #E98AAA; color: white; }
+            QToolButton#window_hide_button:hover, QToolButton#window_minimize_button:hover, QToolButton#window_close_button:hover { background: #D96C98; color: white; }
+            QWidget#vertical_resize_handle { background: #FCE; border-top: 1px solid #D8A7C7; }
             QTabWidget::pane { border: 1px solid #D8A7C7; border-top: none; }
             QTabBar::tab { background: #FCE; min-width: 160px; max-width: 160px; height: 40px; padding: 0; color: #5D294B; font-size: 17px; font-weight: bold; }
             QTabBar::tab:hover { background: #FBE; }
@@ -566,12 +593,21 @@ def _is_admin() -> bool:
         return False
 
 
+def _set_windows_app_identity() -> None:
+    """让 Windows 任务栏不再把本程序归为 python.exe。"""
+    if sys.platform == "win32":
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(_WINDOWS_APP_ID)
+
+
 def main() -> int:
     setup_logging()
-    logger.info("MyAutoPlayer 启动")
+    logger.info("我的自动播放器启动")
     macro_runtime = PythonMacroRuntime()
 
+    _set_windows_app_identity()
     app = QApplication(sys.argv)
+    app.setApplicationName(_APP_TITLE)
+    app.setWindowIcon(application_icon())
     if not _is_admin():
         logger.warning("当前未以管理员权限运行，某些游戏可能无法接收模拟输入")
     window = MainWindow(macro_runtime)

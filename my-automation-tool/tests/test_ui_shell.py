@@ -22,11 +22,12 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtTest import QTest
 from src.ui.ai_prompt_dialog import AiPromptDialog, build_ai_prompt_content, load_prompt_template
 from src.ui.macro_library_panel import MacroEditorDialog, MacroLibraryPanel
 from src.ui.game_keybinds_panel import GameKeybindsPanel
+from src.ui.window_chrome import VerticalResizeHandle, WindowTitleBar
 from src.core.macro_file_manager import MacroFileError
 
 from main import MainWindow
@@ -50,6 +51,7 @@ class UiShellTests(unittest.TestCase):
         self.window.deleteLater()
 
     def test_window_is_fixed_width_and_vertically_resizable(self):
+        self.assertFalse(self.window.windowIcon().isNull())
         self.assertEqual(self.window.width(), 642)
         self.assertEqual(self.window.minimumWidth(), 642)
         self.assertEqual(self.window.maximumWidth(), 642)
@@ -60,6 +62,19 @@ class UiShellTests(unittest.TestCase):
         self.assertEqual(
             self.window.frameGeometry().center(), screen.availableGeometry().center()
         )
+        self.assertIsNotNone(self.window.findChild(WindowTitleBar, "window_title_bar"))
+        self.assertIsNotNone(self.window.findChild(VerticalResizeHandle, "vertical_resize_handle"))
+
+    def test_vertical_resize_handle_changes_only_height(self):
+        self.window.show()
+        resize_handle = self.window.findChild(VerticalResizeHandle, "vertical_resize_handle")
+        original_height = self.window.height()
+        original_width = self.window.width()
+        QTest.mousePress(resize_handle, Qt.MouseButton.LeftButton, pos=resize_handle.rect().center())
+        QTest.mouseMove(resize_handle, resize_handle.rect().center() + QPoint(0, 40))
+        QTest.mouseRelease(resize_handle, Qt.MouseButton.LeftButton, pos=resize_handle.rect().center() + QPoint(0, 40))
+        self.assertGreater(self.window.height(), original_height)
+        self.assertEqual(self.window.width(), original_width)
 
     def test_four_tabs_default_to_macro_library(self):
         tabs = self.window.findChild(QTabWidget, "main_tabs")

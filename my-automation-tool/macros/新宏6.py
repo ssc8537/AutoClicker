@@ -5,12 +5,8 @@ COUNT = 1
 SPEED = 1.0
 
 def run(player):
-    player.切换(1)
-    player.sleep(10000)
-    player.切换(2)
-    player.切换(3)
-    player.战技()
-    player.声骸()
-    player.大招()
-    player.跳跃()
-    player.处决()
+    player.mouse_down("left")
+    player.sleep(5000)
+    player.mouse_up("left")
+    player.mouse_click("right")
+    player.mouse_repeat(3, "left", interval_ms=100)

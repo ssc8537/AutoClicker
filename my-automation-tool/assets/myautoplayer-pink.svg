@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="MyAutoPlayer pink icon">
+  <defs>
+    <linearGradient id="pink" x1="28" y1="20" x2="226" y2="236" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFD7EE"/>
+      <stop offset="0.52" stop-color="#F58CBD"/>
+      <stop offset="1" stop-color="#B93475"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="74" y1="48" x2="166" y2="188" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF" stop-opacity="0.96"/>
+      <stop offset="1" stop-color="#FFF4FA" stop-opacity="0.82"/>
+    </linearGradient>
+  </defs>
+  <rect x="12" y="12" width="232" height="232" rx="62" fill="url(#pink)"/>
+  <rect x="21" y="21" width="214" height="214" rx="53" fill="none" stroke="#FFFFFF" stroke-opacity="0.65" stroke-width="8"/>
+  <path d="M82 66c-13 0-24 11-24 24 0 25 36 49 70 73 34-24 70-48 70-73 0-13-11-24-24-24-18 0-31 12-46 29-15-17-28-29-46-29z" fill="url(#shine)"/>
+  <path d="M105 94c0-16 13-29 29-29 10 0 19 5 24 13-6-4-13-7-21-7-17 0-31 14-31 31 0 6 2 12 5 17-4-7-6-15-6-25z" fill="#FFFFFF" fill-opacity="0.65"/>
+  <circle cx="184" cy="70" r="13" fill="#FFFFFF" fill-opacity="0.82"/>
+  <circle cx="204" cy="98" r="7" fill="#FFFFFF" fill-opacity="0.62"/>
+  <path d="M108 177l19 18 37-44" fill="none" stroke="#FFFFFF" stroke-linecap="round" stroke-linejoin="round" stroke-width="15"/>
+</svg>

@@ -3,13 +3,16 @@ import textwrap
 import threading
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from src.core.script_engine import (
+    PythonMacro,
     PythonMacroRuntime,
     PythonMacroValidationError,
     load_python_macro,
     run_python_macro_once,
 )
+from src.core.script_player import ScriptPlayer
 
 
 def script(count=1, mode="down", body="player.sleep(0)"):
@@ -86,6 +89,39 @@ class ScriptEngineTests(unittest.TestCase):
             path = self.write(directory, script().replace('HOTKEY = "f9"', 'HOTKEY = "f10"'))
             with self.assertRaises(PythonMacroValidationError):
                 load_python_macro(path)
+
+    def test_macro_completion_releases_held_mouse_button(self):
+        events = []
+        player = self._tracking_player(events)
+        macro = self._macro(lambda active_player: active_player.mouse_down("left"))
+        with patch("src.core.script_engine.ScriptPlayer", return_value=player):
+            self.assertTrue(run_python_macro_once(macro, threading.Event()))
+        self.assertEqual(events, [("down", "left"), ("up", "left")])
+
+    def test_macro_exception_releases_held_mouse_button(self):
+        events = []
+        player = self._tracking_player(events)
+
+        def failing_run(active_player):
+            active_player.mouse_down("right")
+            raise RuntimeError("expected test error")
+
+        with patch("src.core.script_engine.ScriptPlayer", return_value=player):
+            with self.assertRaisesRegex(RuntimeError, "expected test error"):
+                run_python_macro_once(self._macro(failing_run), threading.Event())
+        self.assertEqual(events, [("down", "right"), ("up", "right")])
+
+    @staticmethod
+    def _macro(run):
+        return PythonMacro("test", "f9", "switch", 1, 1.0, run)
+
+    @staticmethod
+    def _tracking_player(events):
+        return ScriptPlayer(
+            threading.Event(), 1.0,
+            mouse_press=lambda button: events.append(("down", button)),
+            mouse_release=lambda button: events.append(("up", button)),
+        )
 
 
 if __name__ == "__main__":

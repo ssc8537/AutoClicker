@@ -109,10 +109,15 @@ def run_python_macro_once(
     macro: PythonMacro, stop_event: threading.Event, keybinds: GameKeybinds | None = None
 ) -> bool:
     """执行一轮 Python 宏；正常中断返回 False，供 SequencePlayer 停止循环。"""
+    player = ScriptPlayer(
+        stop_event, macro.speed, keybinds=keybinds or load_game_keybinds()
+    )
     try:
-        macro.run(ScriptPlayer(stop_event, macro.speed, keybinds=keybinds or load_game_keybinds()))
+        macro.run(player)
     except ScriptInterrupted:
         return False
+    finally:
+        player.release_held_mouse_buttons()
     return not stop_event.is_set()
 
 
