@@ -18,8 +18,10 @@ import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
+from src.utils.app_paths import log_root
+
 # 日志文件目录
-_LOG_DIR = Path(__file__).resolve().parent.parent.parent / "logs"
+_LOG_DIR = log_root()
 _LOG_FILE = _LOG_DIR / "app.log"
 
 # 默认格式

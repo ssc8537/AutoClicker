@@ -1,10 +1,9 @@
 # 当前测试总表
 
-## Stage 4T：Windows 验收通过；粉色图标目测待做
+## Stage 5P：Windows 便携版（Windows 验收通过）
 
-- 用户已确认原教程 1–5：最小化、隐藏、托盘菜单/恢复、纵向缩放、安全退出和 F9/F12/F2 回归均通过。
-- 本轮自动检查：全量单元测试、编译与差异检查通过；离屏测试确认窗口图标非空、托盘复用同一图标。
-- 仅剩人工：重启程序后在 Windows 任务栏与通知区域确认粉色图标；见 `my-automation-tool/docs/test-plans/STAGE_4T_TRAY_WINDOW_MANUAL_TEST.md`。
+- Stage 4T 原教程 1–5 已通过。本轮用 PyInstaller 构建 EXE，自动检查 66/66、编译、差异检查与产物结构均通过。
+- 用户已确认 EXE 无黑窗、自动连招名称、粉色图标、宏/键位持久化及 OSD 宏名和 F9/F12/F2 均通过。
 
 ## 永久测试原则
 

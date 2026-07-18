@@ -17,11 +17,12 @@ from PySide6.QtWidgets import (
     QToolButton,
     QWidget,
 )
+from src.utils.app_paths import resource_root
 
 
 def application_icon() -> QIcon:
     """返回窗口和托盘共用的自有粉色应用图标。"""
-    asset_path = Path(__file__).resolve().parents[2] / "assets" / "myautoplayer-pink.svg"
+    asset_path = resource_root() / "assets" / "myautoplayer-pink.svg"
     return QIcon(str(asset_path))
 
 
@@ -41,7 +42,7 @@ class WindowTitleBar(QWidget):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(12, 0, 6, 0)
         layout.setSpacing(6)
-        title = QLabel("我的自动播放器")
+        title = QLabel("自动连招")
         title.setObjectName("window_title_label")
         layout.addWidget(title)
         layout.addStretch(1)

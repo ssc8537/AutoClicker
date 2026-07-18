@@ -6,6 +6,8 @@
 import json
 from pathlib import Path
 
+from src.utils.app_paths import config_root
+
 from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve
 from PySide6.QtGui import QFont, QColor
 from PySide6.QtWidgets import QWidget, QLabel, QHBoxLayout, QApplication, QGraphicsDropShadowEffect
@@ -14,7 +16,7 @@ from PySide6.QtWidgets import QWidget, QLabel, QHBoxLayout, QApplication, QGraph
 class OsdPopup(QWidget):
     """屏幕提示文本浮层窗口，脚本执行/结束时在屏幕顶部居中显示提示。"""
 
-    _SETTINGS_PATH = Path(__file__).resolve().parent.parent.parent / "config" / "settings.json"
+    _SETTINGS_PATH = config_root() / "settings.json"
 
     def __init__(self, parent=None):
         # OSD 是全局工具浮层，不能依附主窗口，否则会随主窗口层级和生命周期变化。

@@ -46,14 +46,15 @@ from src.ui.window_chrome import (
     WindowTitleBar,
     application_icon,
 )
+from src.utils.app_paths import macro_root
 from src.utils.logger import get_logger, setup_logging
 
 logger = get_logger(__name__)
-_MACRO_ROOT = Path(__file__).resolve().parent / "macros"
-_APP_TITLE = "我的自动播放器"
+_MACRO_ROOT = macro_root()
+_APP_TITLE = "自动连招"
 _WINDOWS_APP_ID = "ssc8537.MyAutoPlayer"
 _INSTRUCTION_TEXT = (
-    "我的自动播放器已启动\n\n按 F12 启用/禁用热键\n"
+    "自动连招已启动\n\n按 F12 启用/禁用热键\n"
     "先在宏库启用一个 Python 宏，再轻按 F9 运行\n"
     "（鼠标不要在程序窗口内）"
 )
@@ -90,6 +91,7 @@ class _HotkeyDispatcher(QObject):
         self._on_natural_finish = None
         self._on_binding_configuration = None
         self._execution_active = False
+        self._running_macro_name: str | None = None
         self.f9_signal.connect(self._start_f9, Qt.ConnectionType.QueuedConnection)
         self.f9_stop_signal.connect(self._stop_f9, Qt.ConnectionType.QueuedConnection)
         self.toggle_signal.connect(self._apply_global_status, Qt.ConnectionType.QueuedConnection)
@@ -146,6 +148,7 @@ class _HotkeyDispatcher(QObject):
             logger.info("F9 启动被忽略：Python 宏已经运行")
             return
         self._execution_active = True
+        self._running_macro_name = macro.name
         logger.info("F9 启动 Python 宏：%s，count=%s", macro.name, macro.count)
         self._osd_popup.show_notification(f"{macro.name} 宏运行中", success=True)
 
@@ -155,8 +158,10 @@ class _HotkeyDispatcher(QObject):
         if not self._execution_active:
             return
         self._execution_active = False
-        logger.info("F9 松开/全局禁用 — Python 宏停止")
-        self._osd_popup.show_notification("hello world 宏已停止", success=False)
+        name = self._running_macro_name or "当前宏"
+        self._running_macro_name = None
+        logger.info("F9 松开/全局禁用 — Python 宏停止：%s", name)
+        self._osd_popup.show_notification(f"{name} 宏已停止", success=False)
 
     @Slot()
     def _on_player_finished(self) -> None:
@@ -164,8 +169,10 @@ class _HotkeyDispatcher(QObject):
             self._on_natural_finish()
         if self._execution_active:
             self._execution_active = False
-            logger.info("Python 宏自然结束")
-            self._osd_popup.show_notification("hello world 宏已停止", success=False)
+            name = self._running_macro_name or "当前宏"
+            self._running_macro_name = None
+            logger.info("Python 宏自然结束：%s", name)
+            self._osd_popup.show_notification(f"{name} 宏已停止", success=False)
 
     @Slot(str)
     def _show_macro_error(self, message: str) -> None:
@@ -601,7 +608,7 @@ def _set_windows_app_identity() -> None:
 
 def main() -> int:
     setup_logging()
-    logger.info("我的自动播放器启动")
+    logger.info("自动连招启动")
     macro_runtime = PythonMacroRuntime()
 
     _set_windows_app_identity()

@@ -4,6 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from src.utils.app_paths import config_root
+
 from PySide6.QtCore import Slot
 from PySide6.QtWidgets import (
     QApplication,
@@ -35,7 +37,7 @@ class PromptContent:
 
 
 def _default_config_dir() -> Path:
-    return Path(__file__).resolve().parents[2] / "config"
+    return config_root()
 
 
 def _safe_template_message() -> str:

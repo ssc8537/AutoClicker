@@ -6,6 +6,8 @@ import os
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+
+from src.utils.app_paths import config_root
 from types import MappingProxyType
 from typing import Mapping
 
@@ -31,7 +33,7 @@ RESERVED_KEYS = frozenset({"f2", "f9", "f12"})
 
 
 def default_config_path() -> Path:
-    return Path(__file__).resolve().parents[2] / "config" / "game_keybinds.ini"
+    return config_root() / "game_keybinds.ini"
 
 
 def _normalise_key(value: object) -> str:

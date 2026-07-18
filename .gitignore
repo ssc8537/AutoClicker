@@ -32,6 +32,11 @@ Desktop.ini
 *.ui.autoh
 *.rcc
 
+# PyInstaller 构建产物（源图标、构建脚本和 requirements-build.txt 应提交）
+/my-automation-tool/build/
+/my-automation-tool/dist/
+/my-automation-tool/*.spec
+
 # 本地推送脚本（不推送到 GitHub）
 _push_to_github.bat
 _update_*.py

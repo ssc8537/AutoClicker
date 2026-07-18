@@ -34,7 +34,7 @@ class WindowChromeTests(unittest.TestCase):
     def test_title_bar_exposes_only_close_minimize_and_hide_actions(self):
         title_bar = WindowTitleBar(self.window)
         title = title_bar.findChild(QLabel, "window_title_label")
-        self.assertEqual(title.text(), "我的自动播放器")
+        self.assertEqual(title.text(), "自动连招")
         calls = []
         title_bar.close_requested.connect(lambda: calls.append("close"))
         title_bar.minimize_requested.connect(lambda: calls.append("minimize"))
