@@ -71,4 +71,4 @@ class GameKeybindsPanel(QWidget):
             self._notice.setText(f"保存失败：{exc}")
             return
         self._show(keybinds)
-        self._notice.setText("键位设置已保存；下一次按 F9 会使用新映射。")
+        self._notice.setText("键位设置已保存；下一次宏执行会使用新映射（重新按 F9 最明确）。")
