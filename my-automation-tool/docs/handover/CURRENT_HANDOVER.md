@@ -2,6 +2,8 @@
 
 ## 当前唯一任务（2026-07-18）
 
+发布状态优先于后方历史文字：用户授权整个工作区提交后，`1e0428f` 与 `3d903f2` 已普通推送至 `codex/v021-ui-shell`，远端 SHA 为 `3d903f2ffe190a11cc275b99fec08ce243867e9b`；草稿 PR #3 指向 `master`。Stage 3K Windows 人工验收仍未完成，当前唯一用户动作不变：按 `../test-plans/STAGE_3K_FEEDBACK_DELETE_ACTIVE_EDIT_MANUAL_TEST.md` 验收。详见 `33-STAGE_3K_PUBLISHED_DRAFT_PR_HANDOVER.md`。
+
 最新状态优先于本文件后方历史内容：用户确认 Stage 3K 原教程第 2–6 步通过、第 1 步失败（共享键位表被压扁不可见）。反馈修复已实施并自动验证：设置页整体纵向滚动且八项映射可见；删除按钮默认取消确认，确认后活动宏停止/停用/清空并移入 Windows 回收站，失败不丢文件；已启用宏可编辑、保存和改名，当前运行快照不变、下次 F9 生效并同步活动路径。`python -m unittest discover -s tests -v` 52/52 通过，编译和差异检查通过；未启动 GUI、未发送真实输入。当前唯一用户动作是按 `../test-plans/STAGE_3K_FEEDBACK_DELETE_ACTIVE_EDIT_MANUAL_TEST.md` 验收。多宏并行、Stage 3M、Stage 4T 和发布仍排除；未提交、未推送。
 
 用户已确认 Stage 2D Windows 验收通过；历史教程和交接保持不改写。GoalAlignmentMonitor 首审为 **DRIFT**（稳定入口未写该确认），归档纠正后为 **ALIGNED**；RequirementCertifier 为 **READY（仅 Stage 3K）**。Stage 3K 已实施：共享 `config/game_keybinds.ini` 默认 `1/2/3/E/Q/R/Space/F`，设置页可编辑并原子保存八项映射，拒绝不支持、重复与 F2/F9/F12；宏新增六个中文键盘语义 API，仅映射为物理键并复用可中断 `tap`。`main.py` 只装配已提取的 `src/ui/game_keybinds_panel.py`。自动验证：`python -m unittest discover -s tests -v` 48/48 通过，`python -m compileall -q main.py src tests` 和 `git diff --check` 通过。未启动真实 GUI，未发送真实输入。当前唯一用户动作是按 `../test-plans/STAGE_3K_GAME_KEYBINDS_MANUAL_TEST.md` 在记事本验收；不得进入鼠标、系统托盘或发布。未提交、未推送。

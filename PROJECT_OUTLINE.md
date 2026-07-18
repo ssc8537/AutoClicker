@@ -2,7 +2,7 @@
 
 ## 当前唯一任务（2026-07-18）
 
-用户已确认 Stage 3K 原教程第 2–6 步通过；第 1 步“键位表可见”失败已修复。当前 Stage 3K 反馈增量已自动验证：设置页整体纵向滚动、删除确认后移入回收站、已启用宏可编辑保存改名且下次 F9 生效；F9/F12/F2、唯一活动宏、停止释放和 fail-closed 保持。当前唯一用户动作是按 `my-automation-tool/docs/test-plans/STAGE_3K_FEEDBACK_DELETE_ACTIVE_EDIT_MANUAL_TEST.md` 做 Windows 验收。多宏并行、Stage 3M、Stage 4T、独立代码清理和发布均未实现、未提交、未推送。
+用户已确认 Stage 3K 原教程第 2–6 步通过；第 1 步“键位表可见”失败已修复。当前 Stage 3K 反馈增量已自动验证：设置页整体纵向滚动、中文确认删除后移入回收站、已启用宏可编辑保存改名且下次 F9 生效；F9/F12/F2、唯一活动宏、停止释放和 fail-closed 保持。当前唯一用户动作是按 `my-automation-tool/docs/test-plans/STAGE_3K_FEEDBACK_DELETE_ACTIVE_EDIT_MANUAL_TEST.md` 做 Windows 验收。累计版本已推送 `codex/v021-ui-shell` 并创建草稿 PR #3；多宏并行、Stage 3M、Stage 4T 和独立代码清理仍未实现。
 
 ---
 

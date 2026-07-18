@@ -1,5 +1,9 @@
 # 项目审查日志（REVIEW LOG）
 
+## 审查 #66 | 2026-07-18 | 操作者：用户 + 项目负责人
+
+用户明确授权提交当前整个工作区。已在 `codex/v021-ui-shell` 创建 `1e0428f` 与说明修正 `3d903f2`，通过 SSH 普通推送核验远端 SHA 为 `3d903f2ffe190a11cc275b99fec08ce243867e9b`；未强推、未改写 `master`。HTTPS Git 网络失败及 SSH 配置 BOM 均未修改用户配置，命令级 `ssh -F /dev/null` 成功完成推送。草稿 PR #3 已创建，目标 `master`。最终自动验证 52/52 通过、编译和差异检查通过；Windows 人工验收仍待用户完成，禁止把发布写成验收通过。
+
 ## 审查 #63 | 2026-07-18 | 操作者：用户反馈 + GoalAlignmentMonitor + RequirementCertifier + CodeExplorer + KnowledgeExpert + UIReferenceAnalyst
 
 用户确认 Stage 3K 原教程第 2–6 步通过，但第 1 步失败；截图显示共享键位面板被压成细线。GoalAlignmentMonitor 结论 **DRIFT**，原因是稳定入口仍将 Stage 3K 写为完整待验收而未记录部分失败；本轮只修正反馈，不进入 3M/4T/发布。RequirementCertifier 初审为 NOT READY，补齐案例与代码证据、用户选择后终审为 **READY（受限）**：整体纵向滚动的键位页、确认后回收站删除、启用宏编辑/保存/改名及其测试/教程。多宏并行明确独立后续阶段。
