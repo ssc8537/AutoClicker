@@ -24,7 +24,7 @@
 ## 实施后必须验收
 
 1. 离屏 UI 测试与现有 F9/F12/F2/关闭清理回归。
-2. AntiHallucination、RealtimeChecker、TestEngineer、ProjectManager、DocUpdater 与 Handover 复核。
+2. AntiHallucination、TestEngineer、DocUpdater 与 Handover 复核。
 3. 用户在 Windows 对照四页外观，并在记事本回归 F12、F9、F2。
 
 ## 当前未完成项

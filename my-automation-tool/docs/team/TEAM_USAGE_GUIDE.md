@@ -9,14 +9,13 @@ python main.py
 
 ## 如何叫团队工作
 
-你可以直接说：“让项目负责人接手并继续当前唯一任务。”项目负责人会先做需求信心审查，再安排员工。
+你可以直接说：“让项目负责人接手并继续当前唯一任务。”每位新接手负责人仅一次完成目标对齐和需求信心审查，再按已确认计划工作。
 
 需要指定员工时，可以这样说：
 
 - “让 DocUpdater 更新文档。”
 - “让 CodeExplorer 查找 F9 的执行逻辑。”
 - “让 KnowledgeExpert 在优秀案例中找热键方案。”
-- “让 RealtimeChecker 检查这次改动是否偏离 Quickinput。”
 - “让 TestEngineer 给我准备人工测试教程。”
 - “让 Handover 写给下一位 AI 的交接。”
 - “让 RequirementCertifier 审查这个需求是否已经可以写代码。”
@@ -26,7 +25,7 @@ python main.py
 
 项目负责人和全部员工的目标配置永久统一为 `GPT-5.6 Terra 高 / high`。项目文件不能强制平台实际分配模型；如果平台显示不一致，负责人必须直接告诉你，不能假装已经切换。
 
-每次新功能或修改开始前，RequirementCertifier 必须给出 `READY`；如果是 `NOT READY`，团队只会完善需求文档，不会开始写代码。这是本项目的最高工作门槛。
+每位新接手负责人一次性取得 RequirementCertifier 的 `READY` 后，才可在该范围内写代码；如果是 `NOT READY`，团队只会完善需求文档，不会开始写代码。
 
 项目负责人不会把源码中能够查明的事实交给你决定。它会先查项目文档、优秀案例、代码、测试和日志；只有确实无法推导且会明显影响产品结果的问题才询问你。
 
@@ -35,9 +34,9 @@ python main.py
 1. RequirementCertifier 做接手初审。
 2. KnowledgeExpert、CodeExplorer 和需要时的 UIReferenceAnalyst 查本地证据。
 3. 项目负责人自行关闭技术细节，RequirementCertifier 再做实施前终审。
-4. `READY` 后才实现；TestEngineer 和 RealtimeChecker 负责复核。
-5. AntiHallucination 在初稿、提交前、里程碑和交接检查过长文件。
-6. ReleaseManager 推送 GitHub，Handover 更新当前与编号交接。
+4. `READY` 后才实现；TestEngineer 负责验证。
+5. 新接手负责人只调用一次 AntiHallucination，后续遵循已记录文件检查规则。
+6. 默认不推送 GitHub，Handover 更新当前与编号交接。
 
 这些员工由项目负责人显式调用，不是后台自动程序。
 

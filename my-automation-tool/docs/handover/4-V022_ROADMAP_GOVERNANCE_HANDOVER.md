@@ -11,7 +11,7 @@
 ## 已有验证证据
 
 - v021 基线：23/23 单元测试、Python 编译、离屏 UI 截图与 `git diff --check` 通过；用户已完成 F9/F12/F2 运行与安全验收。
-- 本轮只改 Markdown 与角色配置，不运行自动测试或真实输入。TestEngineer 已确认 V022 清单是视觉规格确认，不需要重测 F9/F12/F2；RealtimeChecker、ProjectManager 和 AntiHallucination 的提交前复核均通过。
+- 本轮只改 Markdown 与角色配置，不运行自动测试或真实输入。TestEngineer 已确认 V022 清单是视觉规格确认，不需要重测 F9/F12/F2；当时的文件与规格复核均通过。
 
 ## 最高调用顺序（必须执行）
 
@@ -46,6 +46,6 @@
 ## 提交前后固定动作
 
 1. AntiHallucination 复查事实、行数、职责和编码。
-2. TestEngineer、RealtimeChecker、ProjectManager、DocUpdater 核对测试说明、运行边界、引用和归档。
+2. TestEngineer、DocUpdater 核对测试说明、运行边界、引用和归档。
 3. `git diff --check`、暂存范围检查后仅提交本轮文档/角色配置。
-4. ReleaseManager 用已验证的 GitHub SOP 推送功能分支和 `master`，并以 `ls-remote --symref` 核验 SHA。
+4. 若用户明确要求发布，按已验证 GitHub SOP 普通推送功能分支和 `master`，并以 `ls-remote --symref` 核验 SHA。

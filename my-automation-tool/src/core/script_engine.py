@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import threading
+import inspect
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
 
 from src.core.script_player import ScriptInterrupted, ScriptPlayer
+from src.core.game_keybinds import GameKeybinds, load_game_keybinds
 
 
 class PythonMacroValidationError(ValueError):
@@ -26,16 +28,29 @@ class PythonMacro:
 class PythonMacroRuntime:
     """保存最后一次有效 Python 宏，并在 F9 前原子重载。"""
 
-    def __init__(self, path: str | Path):
-        self._path = Path(path)
+    def __init__(self, path: str | Path | None = None):
+        self._path = Path(path) if path is not None else None
         self._lock = threading.RLock()
-        self._macro = load_python_macro(self._path)
+        self._macro = None
 
-    def current(self) -> PythonMacro:
+    def current(self) -> PythonMacro | None:
         with self._lock:
             return self._macro
 
+    def selected_path(self) -> Path | None:
+        """返回活动路径，但不加载或执行该宏。"""
+        with self._lock:
+            return self._path
+
+    def set_selected_path(self, path: str | Path | None) -> None:
+        """设置活动路径，实际加载只允许发生在 F9 的 reload 中。"""
+        with self._lock:
+            self._path = Path(path) if path is not None else None
+            self._macro = None
+
     def reload(self) -> PythonMacro:
+        if self._path is None:
+            raise PythonMacroValidationError("未选择有效宏")
         macro = load_python_macro(self._path)
         with self._lock:
             self._macro = macro
@@ -75,13 +90,27 @@ def load_python_macro(path: str | Path) -> PythonMacro:
         raise PythonMacroValidationError("SPEED 必须是 0.01 至 8.0 的数字")
     if not callable(run):
         raise PythonMacroValidationError("必须定义可调用的 run(player) 函数")
+    parameters = list(inspect.signature(run).parameters.values())
+    if (
+        len(parameters) != 1
+        or parameters[0].name != "player"
+        or parameters[0].default is not inspect.Parameter.empty
+        or parameters[0].kind
+        not in {
+            inspect.Parameter.POSITIONAL_ONLY,
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        }
+    ):
+        raise PythonMacroValidationError("run 必须精确为 run(player)")
     return PythonMacro(name, hotkey, mode, count, float(speed), run)
 
 
-def run_python_macro_once(macro: PythonMacro, stop_event: threading.Event) -> bool:
+def run_python_macro_once(
+    macro: PythonMacro, stop_event: threading.Event, keybinds: GameKeybinds | None = None
+) -> bool:
     """执行一轮 Python 宏；正常中断返回 False，供 SequencePlayer 停止循环。"""
     try:
-        macro.run(ScriptPlayer(stop_event, macro.speed))
+        macro.run(ScriptPlayer(stop_event, macro.speed, keybinds=keybinds or load_game_keybinds()))
     except ScriptInterrupted:
         return False
     return not stop_event.is_set()

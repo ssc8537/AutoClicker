@@ -5,6 +5,7 @@ import threading
 from collections.abc import Callable
 
 from src.core.input_simulator import is_supported_key, press_key, release_key
+from src.core.game_keybinds import DEFAULT_GAME_KEYBINDS, GameKeybinds
 
 
 class ScriptInterrupted(Exception):
@@ -20,11 +21,34 @@ class ScriptPlayer:
         speed: float,
         press: Callable[[str], None] = press_key,
         release: Callable[[str], None] = release_key,
+        keybinds: GameKeybinds = DEFAULT_GAME_KEYBINDS,
     ):
         self._stop_event = stop_event
         self._speed = speed
         self._press = press
         self._release = release
+        self._keybinds = keybinds
+
+    def 切换(self, character: int) -> None:
+        """发送用户配置的角色 1、2 或 3 物理键，不检测游戏角色状态。"""
+        if isinstance(character, bool) or character not in {1, 2, 3}:
+            raise ValueError("切换只接受角色编号 1、2 或 3")
+        self.tap(self._keybinds.key_for(f"character_{character}"))
+
+    def 战技(self) -> None:
+        self.tap(self._keybinds.key_for("skill"))
+
+    def 声骸(self) -> None:
+        self.tap(self._keybinds.key_for("echo"))
+
+    def 大招(self) -> None:
+        self.tap(self._keybinds.key_for("ultimate"))
+
+    def 跳跃(self) -> None:
+        self.tap(self._keybinds.key_for("jump"))
+
+    def 处决(self) -> None:
+        self.tap(self._keybinds.key_for("execute"))
 
     def tap(self, key: str, hold_ms: int = 20) -> None:
         """现实键盘按下并释放一个单键；中断时仍保证释放。"""

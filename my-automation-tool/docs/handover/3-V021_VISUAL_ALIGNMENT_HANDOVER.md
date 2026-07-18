@@ -38,4 +38,4 @@
 5. 写出 V022 可执行视觉规格：颜色、字体、间距、页面层级、按钮状态、窗口最小高度与裁切规则。
 6. RequirementCertifier 实施前终审为 READY 后，才允许新的 UI 调整。
 
-提交前必须再次调用 TestEngineer、RealtimeChecker、AntiHallucination、ProjectManager、DocUpdater 和 Handover。禁止直接改最小高度，禁止新增鼠标执行，禁止修改 F9/F12/F2/OSD，禁止复制案例资源。
+提交前必须完成 TestEngineer、文件长度检查、DocUpdater 和 Handover 归档。禁止直接改最小高度，禁止新增鼠标执行，禁止修改 F9/F12/F2/OSD，禁止复制案例资源。

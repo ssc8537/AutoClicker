@@ -2,6 +2,8 @@
 
 这些 Markdown 文件是本仓库的项目级角色规范。`1-project-lead.md` 是唯一总入口；项目负责人负责派发任务、整合员工证据和最终交付。
 
+> 最高调用规则：每位新接手负责人对 GoalAlignmentMonitor、RequirementCertifier、CodeExplorer、KnowledgeExpert、AntiHallucination 各仅调用一次；同一负责人后续阶段、反馈修复和归档不得自动重复。UIReferenceAnalyst 仅在 UI 工作或视觉反馈时调用，并先查看根目录 `2-UI图片`。
+
 - 项目负责人和全部专项员工统一记录为 `GPT-5.6 Terra 高 / high`，不得在项目配置中改用其他模型或推理档位。
 - 仓库文件不能强制覆盖平台模型或推理档位，实际运行继承平台设置。
 - `agent_type` 使用 `default`、`explorer` 或 `worker`；最大嵌套层数保持 1。
@@ -19,11 +21,8 @@
 | 3 | KnowledgeExpert | `knowledge-expert.md` | 解释两个优秀案例的源码证据与适配边界 |
 | 4 | CodeExplorer | `code-explorer.md` | 只读定位文件、符号、行号和调用关系 |
 | 5 | UIReferenceAnalyst | `ui-reference-analyst.md` | 核对 UI 图片、源码、尺寸、状态和视觉差异 |
-| 6 | ProjectManager | `project-manager.md` | 目录、命名、文件归属和结构文档 |
 | 7 | DocUpdater | `doc-updater.md` | 同步已发生的进度、验证、风险和下一步 |
 | 8 | TestEngineer | `test-engineer.md` | 自动测试、静态检查和人工验收教程 |
-| 9 | RealtimeChecker | `realtime-checker.md` | 实现后检查批准规格和案例方向偏差 |
-| 10 | ReleaseManager | `release-manager.md` | Git 基线、排除项、提交、推送和远端核验 |
 | 11 | Handover | `handover.md` | 当前交接入口和编号历史快照 |
 | 12 | AntiHallucination | `anti-hallucination.md` | 过长且职责混杂文件的分析和获准拆分 |
 
@@ -35,9 +34,9 @@
 4. 有缺口时，先调用 CodeExplorer、KnowledgeExpert；UI 问题再调用 UIReferenceAnalyst。
 5. 项目负责人依据本地证据关闭可发现问题，只把真正高影响且不可推导的产品选择交给用户。
 6. RequirementCertifier 做实施前终审；只有 `READY` 才能实现或重构。
-7. TestEngineer 验证，RealtimeChecker 检查偏差；DocUpdater 和 ProjectManager 先归档事实。
-8. AntiHallucination 在初稿、提交前、里程碑和交接检查文件长度与职责。
-9. ReleaseManager 提交并核验远端；Handover 最后更新稳定入口和编号历史。任务中断也必须先完成 DocUpdater/Handover 归档。
+7. TestEngineer 验证；DocUpdater 先归档事实。
+8. 新接手负责人仅一次调用 AntiHallucination，后续遵循其已记录检查规则。
+9. 默认不提交、不推送；Handover 最后更新稳定入口和编号历史。任务中断也必须先完成 DocUpdater/Handover 归档。
 
 “自动更新”或“实时检查”都是负责人必须显式调用的检查点，不代表 Markdown 配置能够后台常驻。
 

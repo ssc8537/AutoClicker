@@ -49,6 +49,7 @@ class ScriptEngineTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = self.write(directory, script(count=1))
             runtime = PythonMacroRuntime(path)
+            runtime.reload()
             self.write(directory, "def run(:\n")
             with self.assertRaises(PythonMacroValidationError):
                 runtime.reload()
@@ -59,6 +60,26 @@ class ScriptEngineTests(unittest.TestCase):
             path = self.write(directory, "NAME = 'x'\n")
             with self.assertRaises(PythonMacroValidationError):
                 load_python_macro(path)
+
+    def test_rejects_non_player_run_signature(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.write(directory, script().replace("def run(player):", "def run(other):"))
+            with self.assertRaises(PythonMacroValidationError):
+                load_python_macro(path)
+
+    def test_runtime_allows_safe_empty_selection(self):
+        runtime = PythonMacroRuntime()
+        self.assertIsNone(runtime.current())
+        with self.assertRaises(PythonMacroValidationError):
+            runtime.reload()
+
+    def test_setting_selected_path_does_not_load_macro(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.write(directory, script())
+            runtime = PythonMacroRuntime()
+            runtime.set_selected_path(path)
+            self.assertEqual(runtime.selected_path(), path)
+            self.assertIsNone(runtime.current())
             path = self.write(directory, script(mode="up"))
             with self.assertRaises(PythonMacroValidationError):
                 load_python_macro(path)

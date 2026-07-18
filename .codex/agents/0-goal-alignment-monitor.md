@@ -1,4 +1,6 @@
 ---
+
+> 调用频率：每位新接手负责人最多调用一次；同一负责人后续阶段、反馈修复和归档不自动重复调用。
 name: GoalAlignmentMonitor
 agent_type: explorer
 target_model: GPT-5.6 Terra 高

@@ -19,7 +19,9 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMessageBox,
     QPushButton,
+    QScrollArea,
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -34,14 +36,17 @@ from src.core.script_engine import (
     PythonMacroValidationError,
     run_python_macro_once,
 )
+from src.core.macro_library import MacroEntry, MacroMetadata
+from src.ui.macro_library_panel import MacroLibraryPanel
+from src.ui.game_keybinds_panel import GameKeybindsPanel
 from src.ui.osd_window import OsdPopup
 from src.utils.logger import get_logger, setup_logging
 
 logger = get_logger(__name__)
-_MACRO_PATH = Path(__file__).resolve().parent / "scripts" / "hello_world.py"
+_MACRO_ROOT = Path(__file__).resolve().parent / "macros"
 _INSTRUCTION_TEXT = (
     "MyAutoPlayer 已启动\n\n按 F12 启用/禁用热键\n"
-    "轻按 F9 运行 Python hello_world.py\n"
+    "先在宏库启用一个 Python 宏，再轻按 F9 运行\n"
     "（鼠标不要在程序窗口内）"
 )
 
@@ -96,6 +101,9 @@ class _HotkeyDispatcher(QObject):
     def on_f9_hook(self) -> None:
         """由钩子线程重载已保存 Python 宏，再安全转发启动请求。"""
         try:
+            if self._macro_runtime.selected_path() is None:
+                self.macro_error_signal.emit("未选择有效宏，F9 未启动")
+                return
             macro = self._macro_runtime.reload()
             if self._on_binding_configuration is not None:
                 self._on_binding_configuration(macro)
@@ -122,6 +130,8 @@ class _HotkeyDispatcher(QObject):
     @Slot()
     def _start_f9(self) -> None:
         macro = self._macro_runtime.current()
+        if macro is None:
+            return
         if not self._player.play(
             lambda stop_event: run_python_macro_once(macro, stop_event), macro.count
         ):
@@ -129,7 +139,7 @@ class _HotkeyDispatcher(QObject):
             return
         self._execution_active = True
         logger.info("F9 启动 Python 宏：%s，count=%s", macro.name, macro.count)
-        self._osd_popup.show_notification("hello world 宏运行中", success=True)
+        self._osd_popup.show_notification(f"{macro.name} 宏运行中", success=True)
 
     @Slot()
     def _stop_f9(self) -> None:
@@ -177,6 +187,8 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("MyAutoPlayer")
         self._macro_runtime = macro_runtime
         self._hotkey_mgr: HotkeyManager | None = None
+        self._macro_entries: list[MacroEntry] = []
+        self._active_macro_path: Path | None = None
         self._setup_ui()
         self._osd_popup = OsdPopup(None)
         self._dispatcher = _HotkeyDispatcher(
@@ -185,6 +197,10 @@ class MainWindow(QMainWindow):
         self._setup_hotkey()
 
     def _setup_ui(self) -> None:
+        if not hasattr(self, "_macro_entries"):
+            self._macro_entries = []
+        if not hasattr(self, "_active_macro_path"):
+            self._active_macro_path = None
         self.setFixedWidth(642)
         self.setMinimumHeight(510)
         screen = QApplication.primaryScreen()
@@ -195,7 +211,7 @@ class MainWindow(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         layout = QVBoxLayout(central_widget)
-        layout.setContentsMargins(1, 1, 1, 1)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
         tabs = QTabWidget()
@@ -208,20 +224,22 @@ class MainWindow(QMainWindow):
         tabs.addTab(self._build_settings_page(), "设置")
         layout.addWidget(tabs)
         self._tabs = tabs
+        self._on_macro_entries_changed(self._macro_panel.entries)
         self.setStyleSheet(
             """
             QMainWindow, QWidget { background: #FDF; color: black; font-family: "Microsoft YaHei"; font-size: 12px; }
-            QTabBar::tab { background: #FCE; min-width: 160px; max-width: 160px; height: 40px; padding: 0; font-size: 18px; font-weight: bold; }
+            QTabWidget::pane { border: 1px solid #D8A7C7; border-top: none; }
+            QTabBar::tab { background: #FCE; min-width: 160px; max-width: 160px; height: 40px; padding: 0; color: #5D294B; font-size: 17px; font-weight: bold; }
             QTabBar::tab:hover { background: #FBE; }
-            QTabBar::tab:selected { background: #FDF; }
-            QGroupBox { border: 1px solid #D8A7C7; margin-top: 8px; padding-top: 8px; font-weight: bold; }
+            QTabBar::tab:selected { background: #FDF; color: #9B2860; }
+            QGroupBox { background: #FFF5FF; border: 1px solid #D8A7C7; margin-top: 10px; padding: 10px 8px 8px; font-weight: bold; }
             QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }
             QLineEdit, QComboBox { background: #FFF5FF; border: 1px solid #D8A7C7; padding: 4px; min-height: 22px; }
-            QTableWidget { background: white; border: 1px solid #D8A7C7; gridline-color: #F0CDE0; }
-            QHeaderView::section { background: #FFF0FF; border: none; padding: 4px; font-weight: bold; }
-            QPushButton { background: #FCE; border: 1px solid #D8A7C7; padding: 5px 10px; }
+            QTableWidget { background: #FFF; alternate-background-color: #FFF5FF; border: 1px solid #D8A7C7; gridline-color: #F0CDE0; selection-background-color: #FCE; selection-color: #5D294B; }
+            QHeaderView::section { background: #FFF0FF; border: none; border-bottom: 1px solid #D8A7C7; padding: 6px; color: #5D294B; font-weight: bold; }
+            QPushButton { background: #FCE; border: 1px solid #D8A7C7; min-height: 26px; padding: 4px 10px; }
             QPushButton:hover:!disabled { background: #FBE; }
-            QPushButton:disabled, QCheckBox:disabled, QComboBox:disabled { color: #777; background: #F7EAF1; }
+            QPushButton:disabled, QCheckBox:disabled, QComboBox:disabled { color: #8F7785; background: #F7EAF1; border-color: #E3CCD9; }
             """
         )
         self._center_on_screen()
@@ -248,81 +266,215 @@ class MainWindow(QMainWindow):
         return button
 
     def _build_macro_page(self) -> QWidget:
-        page = QWidget()
-        layout = QHBoxLayout(page)
-        layout.setContentsMargins(10, 10, 10, 10)
+        self._macro_panel = MacroLibraryPanel(_MACRO_ROOT, on_delete_requested=self._delete_macro)
+        self._macro_panel.entries_changed.connect(self._on_macro_entries_changed)
+        self._macro_panel.active_path_renamed.connect(self._on_active_macro_renamed)
+        return self._macro_panel
 
-        table = QTableWidget(1, 3)
-        table.setObjectName("macro_library_table")
-        table.setHorizontalHeaderLabels(["分组", "Python 宏", "状态"])
-        for column, value in enumerate(("默认", "hello_world.py", "只读")):
-            item = QTableWidgetItem(value)
-            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            table.setItem(0, column, item)
-        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        table.setColumnWidth(0, 80)
-        table.setColumnWidth(1, 190)
-        layout.addWidget(table, 1)
+    @Slot(object)
+    def _on_macro_entries_changed(self, entries: list[MacroEntry]) -> None:
+        self._macro_entries = list(entries)
+        active_entry = self._entry_for_path(self._active_macro_path)
+        if self._active_macro_path is not None and active_entry is None:
+            self._active_macro_path = None
+            self._macro_runtime.set_selected_path(None)
+            if hasattr(self, "_dispatcher"):
+                self._dispatcher.stop_active_execution()
+            if self._hotkey_mgr is not None:
+                self._hotkey_mgr.mark_finished("f9")
+            logger.warning("活动宏已删除或失效，已安全停用")
+        self._macro_panel.set_active_path(self._active_macro_path)
+        self._render_trigger_rows()
 
-        detail = QGroupBox("宏详情（只读）")
-        form = QFormLayout(detail)
-        form.addRow("脚本", self._readonly_field("hello_world.py"))
-        form.addRow("位置", self._readonly_field("scripts/hello_world.py"))
-        actions = QGridLayout()
-        for index, text in enumerate(("新建", "编辑", "保存", "刷新", "导入", "导出", "删除")):
-            actions.addWidget(self._disabled_button(text), index // 2, index % 2)
-        form.addRow(actions)
-        layout.addWidget(detail)
-        return page
+    def _entry_for_path(self, path: Path | None) -> MacroEntry | None:
+        if path is None:
+            return None
+        return next(
+            (entry for entry in self._macro_entries if entry.valid and entry.path == path),
+            None,
+        )
 
     def _build_trigger_page(self) -> QWidget:
         page = QWidget()
         layout = QHBoxLayout(page)
-        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(12)
 
-        table = QTableWidget(1, 3)
+        table = QTableWidget(0, 5)
         table.setObjectName("trigger_table")
-        table.setHorizontalHeaderLabels(["Python 宏", "热键", "状态"])
-        for column, value in enumerate(("hello_world.py", "F9", "只读")):
-            item = QTableWidgetItem(value)
-            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            table.setItem(0, column, item)
+        table.setHorizontalHeaderLabels(["序号", "名称", "按键", "模式", "状态"])
         table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        table.setColumnWidth(0, 190)
-        table.setColumnWidth(1, 80)
+        table.setAlternatingRowColors(True)
+        table.verticalHeader().setVisible(False)
+        table.horizontalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
+        table.horizontalHeader().setStretchLastSection(True)
+        table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # 窗口宽度固定，前三列必须为“状态”列保留最小宽度；否则 Qt 会在
+        # 选中单元格时自动横向滚动，导致最左侧“名称”列被挤出可见区域。
+        table.setColumnWidth(0, 38)
+        table.setColumnWidth(1, 116)
+        table.setColumnWidth(2, 52)
+        table.setColumnWidth(3, 70)
+        table.itemSelectionChanged.connect(self._show_selected_trigger_detail)
+        table.cellClicked.connect(self._on_trigger_cell_clicked)
+        self._trigger_table = table
         layout.addWidget(table, 1)
 
         detail = QGroupBox("触发详情（只读）")
+        # 主窗口为固定宽度；固定右栏才能保证左侧四列表不会被内容建议尺寸挤压。
+        detail.setFixedWidth(210)
         form = QFormLayout(detail)
+        form.setVerticalSpacing(9)
         form.addRow("热键", self._readonly_field("F9"))
-        form.addRow("MODE", self._readonly_field("switch / down"))
-        form.addRow("COUNT", self._readonly_field("来自 hello_world.py"))
-        form.addRow("SPEED", self._readonly_field("来自 hello_world.py"))
+        self._trigger_mode_field = self._readonly_field("未选择有效宏")
+        self._trigger_count_field = self._readonly_field("未选择有效宏")
+        self._trigger_speed_field = self._readonly_field("未选择有效宏")
+        self._trigger_status_field = self._readonly_field("未选择有效宏")
+        form.addRow("模式", self._trigger_mode_field)
+        form.addRow("次数", self._trigger_count_field)
+        form.addRow("速度", self._trigger_speed_field)
+        form.addRow("状态", self._trigger_status_field)
         form.addRow(self._disabled_button("保存触发设置"))
         layout.addWidget(detail)
         return page
 
+    def _render_trigger_rows(self) -> None:
+        selected_path = None
+        rows = self._trigger_table.selectionModel().selectedRows()
+        if rows and rows[0].row() < len(self._macro_entries):
+            selected_path = self._macro_entries[rows[0].row()].path
+        self._trigger_table.blockSignals(True)
+        self._trigger_table.setRowCount(len(self._macro_entries))
+        selected_row = None
+        for row, entry in enumerate(self._macro_entries):
+            if entry.valid:
+                assert entry.macro is not None
+                mode = "按住" if entry.macro.mode == "down" else "切换"
+                enabled = entry.path == self._active_macro_path
+                values = (
+                    str(row + 1),
+                    entry.path.stem,
+                    "F9",
+                    mode,
+                    "启用" if enabled else "禁用",
+                )
+            else:
+                values = (str(row + 1), entry.path.stem, "—", "—", "不可启用")
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                if column == 1 and not entry.valid:
+                    item.setForeground(Qt.GlobalColor.red)
+                if column == 4:
+                    item.setForeground(
+                        Qt.GlobalColor.green if value == "启用" else Qt.GlobalColor.red
+                    )
+                self._trigger_table.setItem(row, column, item)
+            if entry.path == self._active_macro_path or entry.path == selected_path:
+                selected_row = row
+        if selected_row is not None:
+            self._trigger_table.selectRow(selected_row)
+        else:
+            self._trigger_table.clearSelection()
+        self._trigger_table.blockSignals(False)
+        self._reset_trigger_horizontal_scroll()
+        self._show_selected_trigger_detail()
+
+    @Slot()
+    def _show_selected_trigger_detail(self) -> None:
+        self._reset_trigger_horizontal_scroll()
+        rows = self._trigger_table.selectionModel().selectedRows()
+        entry = self._macro_entries[rows[0].row()] if rows else None
+        if entry is None or not entry.valid:
+            values = ("—", "—", "—", "不可启用" if entry else "未选择有效宏")
+        else:
+            assert entry.macro is not None
+            mode = "按住" if entry.macro.mode == "down" else "切换"
+            values = (
+                mode,
+                str(entry.macro.count),
+                str(entry.macro.speed),
+                "启用" if entry.path == self._active_macro_path else "禁用",
+            )
+        for field, value in zip(
+            (
+                self._trigger_mode_field,
+                self._trigger_count_field,
+                self._trigger_speed_field,
+                self._trigger_status_field,
+            ),
+            values,
+        ):
+            field.setText(value)
+
+    @Slot(int, int)
+    def _on_trigger_cell_clicked(self, row: int, column: int) -> None:
+        self._reset_trigger_horizontal_scroll()
+        if column == 4:
+            self._toggle_trigger_activity(row)
+
+    def _reset_trigger_horizontal_scroll(self) -> None:
+        """名称列始终可见；隐藏的横向滚动条不得保留偏移。"""
+        bar = self._trigger_table.horizontalScrollBar()
+        bar.setValue(bar.minimum())
+
+    def _toggle_trigger_activity(self, row: int) -> None:
+        entry = self._macro_entries[row]
+        if not entry.valid:
+            return
+        if self._active_macro_path == entry.path:
+            self._active_macro_path = None
+            self._macro_runtime.set_selected_path(None)
+        else:
+            self._active_macro_path = entry.path
+            self._macro_runtime.set_selected_path(entry.path)
+        self._macro_panel.set_active_path(self._active_macro_path)
+        self._render_trigger_rows()
+
+    def _delete_macro(self, path: Path) -> None:
+        """确认后先停止/停用，再请求受控文件服务移入回收站。"""
+        if path == self._active_macro_path:
+            self._dispatcher.stop_active_execution()
+            self._active_macro_path = None
+            self._macro_runtime.set_selected_path(None)
+            if self._hotkey_mgr is not None:
+                self._hotkey_mgr.mark_finished("f9")
+            self._macro_panel.set_active_path(None)
+            self._render_trigger_rows()
+        try:
+            self._macro_panel.delete_path_after_stop(path)
+        except MacroFileError as exc:
+            QMessageBox.warning(self, "删除失败", str(exc))
+
+    @Slot(object, object)
+    def _on_active_macro_renamed(self, previous: Path, target: Path) -> None:
+        if self._active_macro_path == previous:
+            self._active_macro_path = target
+            self._macro_runtime.set_selected_path(target)
+
     def _build_features_page(self) -> QWidget:
         page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(16, 16, 16, 16)
+        layout = QFormLayout(page)
+        layout.setContentsMargins(40, 30, 90, 30)
+        layout.setHorizontalSpacing(28)
+        layout.setVerticalSpacing(16)
         title = QLabel("功能（后续阶段）")
         title.setStyleSheet("font-size: 18px; font-weight: bold;")
-        layout.addWidget(title)
+        layout.addRow(title)
 
-        group = QGroupBox("快速鼠标点击")
-        form = QFormLayout(group)
+        description = QLabel("以下项目仅展示规划方向，当前不会注册热键或执行鼠标输入。")
+        description.setStyleSheet("color: #7A5268;")
+        description.setWordWrap(True)
+        layout.addRow(description)
         enabled = QCheckBox("启用快速鼠标点击（后续阶段）")
         enabled.setEnabled(False)
-        form.addRow(enabled)
-        form.addRow("触发按键", self._disabled_combo("F2（仅占位）"))
-        form.addRow("点击模式", self._disabled_combo("单击"))
-        form.addRow("点击间隔", self._readonly_field("后续阶段"))
-        form.addRow(self._disabled_button("应用功能设置"))
-        layout.addWidget(group)
-        layout.addStretch()
+        layout.addRow("快速连点", enabled)
+        layout.addRow("触发按键", self._disabled_combo("F2（仅占位）"))
+        layout.addRow("点击模式", self._disabled_combo("单击"))
+        layout.addRow("点击间隔", self._readonly_field("后续阶段"))
+        layout.addRow("", self._disabled_button("应用功能设置"))
         return page
 
     @staticmethod
@@ -334,42 +486,43 @@ class MainWindow(QMainWindow):
 
     def _build_settings_page(self) -> QWidget:
         page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(16, 16, 16, 16)
-
-        status_group = QGroupBox("当前运行状态")
-        status_layout = QVBoxLayout(status_group)
+        page_layout = QVBoxLayout(page)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setObjectName("settings_scroll_area")
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        content = QWidget()
+        layout = QFormLayout(content)
+        layout.setContentsMargins(40, 28, 90, 28)
+        layout.setHorizontalSpacing(28)
+        layout.setVerticalSpacing(16)
         self._status_label = QLabel("🔴 热键已禁用")
         self._status_label.setObjectName("global_status_label")
-        self._status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._status_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self._status_label.setStyleSheet("font-size: 20px; color: red; font-weight: bold;")
-        status_layout.addWidget(self._status_label)
-        status_layout.addWidget(QLabel("F12 是唯一实际的全局启用/禁用热键。"))
-        layout.addWidget(status_group)
-
-        settings_group = QGroupBox("设置（只读）")
-        form = QFormLayout(settings_group)
-        form.addRow("全局开关", self._readonly_field("F12"))
-        form.addRow("F2", self._readonly_field("仅 UI 占位，不注册"))
-        form.addRow("OSD", self._readonly_field("沿用既有红绿提示，不提供样式编辑"))
-        form.addRow("主题", self._readonly_field("Candy 粉红主题（固定）"))
-        layout.addWidget(settings_group)
-
+        layout.addRow("当前状态", self._status_label)
+        layout.addRow("全局开关", self._readonly_field("F12"))
+        layout.addRow("F2", self._readonly_field("仅 UI 占位，不注册"))
+        layout.addRow("OSD", self._readonly_field("沿用既有红绿提示，不提供样式编辑"))
+        layout.addRow("主题", self._readonly_field("Candy 粉红主题（固定）"))
+        self._game_keybinds_panel = GameKeybindsPanel()
+        layout.addRow("共享游戏键位", self._game_keybinds_panel)
         info = QLabel(_INSTRUCTION_TEXT)
-        info.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(info)
-        layout.addStretch()
+        info.setWordWrap(True)
+        layout.addRow("使用说明", info)
+        scroll.setWidget(content)
+        page_layout.addWidget(scroll)
         return page
 
     def _setup_hotkey(self) -> None:
-        macro = self._macro_runtime.current()
         self._hotkey_mgr = HotkeyManager(int(self.winId()))
         self._hotkey_mgr.register(
             "f9",
             self._dispatcher.on_f9_hook,
-            mode=TriggerMode[macro.mode.upper()],
+            mode=TriggerMode.SWITCH,
             stop_callback=self._dispatcher.on_f9_stop_hook,
-            stop_on_release=macro.count == 0,
+            stop_on_release=False,
         )
         self._hotkey_mgr.set_global_disable_key("f12")
         self._hotkey_mgr.on_toggle(self._dispatcher.on_toggle_hook)
@@ -382,7 +535,7 @@ class MainWindow(QMainWindow):
             )
         )
         self._hotkey_mgr.start()
-        logger.info("阶段 3 Python 宏已加载：F9=%s，F12=全局启停", macro.mode)
+        logger.info("C1 宏库已就绪：F9 等待活动宏，F12=全局启停")
 
     def closeEvent(self, event) -> None:
         logger.info("程序退出")
@@ -416,11 +569,7 @@ def _is_admin() -> bool:
 def main() -> int:
     setup_logging()
     logger.info("MyAutoPlayer 启动")
-    try:
-        macro_runtime = PythonMacroRuntime(_MACRO_PATH)
-    except PythonMacroValidationError:
-        logger.exception("阶段 3 Python 测试宏无效；为安全起见不注册热键")
-        return 1
+    macro_runtime = PythonMacroRuntime()
 
     app = QApplication(sys.argv)
     if not _is_admin():

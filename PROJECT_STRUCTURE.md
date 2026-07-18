@@ -36,7 +36,7 @@
 | `src/ui/dialogs/` | 新建、重命名、删除确认、热键捕获 | 业务持久化逻辑 |
 | `src/ui/widgets/` | 可复用列表、表单行、状态徽标 | 全局单例状态 |
 
-新增或移动自有文件后，ProjectManager 必须更新本文件。
+新增或移动自有文件后，DocUpdater 必须更新本文件。
 
 ## Agent 配置边界
 
