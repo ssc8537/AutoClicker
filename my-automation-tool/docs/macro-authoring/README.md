@@ -6,4 +6,4 @@
 
 - [完整编写说明](AUTHORING_GUIDE.md)
 
-当前发布 `player.tap(key, hold_ms=20)`、`player.sleep(ms)`、`player.切换(1|2|3)`、`player.战技()`、`player.声骸()`、`player.大招()`、`player.跳跃()`、`player.处决()`，以及仅左/右键的 `player.mouse_down()`、`player.mouse_up()`、`player.mouse_click()`、`player.mouse_repeat()`。语义函数使用“设置”页保存的共享键盘物理键；鼠标不支持坐标、滚轮、录制或游戏识别，新热键和自动判断仍未发布，不能写入宏。
+当前发布 `player.tap(key, hold_ms=20)`、`player.sleep(ms)`、`player.切换(1|2|3)`、`player.战技()`、`player.声骸()`、`player.大招()`、`player.跳跃()`、`player.处决()`，以及仅左/右键的 `player.mouse_down()`、`player.mouse_up()`、`player.mouse_click()`、`player.mouse_repeat()`。触发配置直接在“触发”页录入键盘键或鼠标侧键并即时保存；相同键可并发触发多个启用宏，F12 统一停止。语义函数使用“设置”页保存的共享键盘物理键；鼠标不支持坐标、滚轮、录制或游戏识别，组合键和自动判断仍未发布，不能写入宏。

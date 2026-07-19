@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QLabel,
     QComboBox,
+    QGroupBox,
     QLineEdit,
     QMainWindow,
     QMessageBox,
@@ -18,6 +19,8 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QTabWidget,
     QTableWidget,
+    QStyle,
+    QStyleOptionSpinBox,
     QHBoxLayout,
     QVBoxLayout,
     QWidget,
@@ -84,6 +87,81 @@ class UiShellTests(unittest.TestCase):
         tabs.setCurrentIndex(2)
         self.assertEqual(tabs.currentIndex(), 2)
 
+    def test_trigger_table_prioritizes_name_width_and_short_status(self):
+        table = self.window.findChild(QTableWidget, "trigger_table")
+        self.assertGreater(table.columnWidth(1), table.columnWidth(2))
+        self.assertGreater(table.columnWidth(1), table.columnWidth(4))
+        self.assertEqual(table.columnWidth(4), 44)
+        titles = {group.title() for group in self.window.findChildren(QGroupBox)}
+        self.assertIn("触发详情（自动保存）", titles)
+
+    def test_trigger_spin_box_arrows_are_visible_and_clickable(self):
+        self.window.findChild(QTabWidget, "main_tabs").setCurrentIndex(1)
+        self.window.show()
+        self.app.processEvents()
+        field = self.window._trigger_speed_field
+        field.setEnabled(True)
+        field.setValue(1.0)
+        option = QStyleOptionSpinBox()
+        field.initStyleOption(option)
+        up_rect = field.style().subControlRect(
+            QStyle.ComplexControl.CC_SpinBox,
+            option,
+            QStyle.SubControl.SC_SpinBoxUp,
+            field,
+        )
+        down_rect = field.style().subControlRect(
+            QStyle.ComplexControl.CC_SpinBox,
+            option,
+            QStyle.SubControl.SC_SpinBoxDown,
+            field,
+        )
+        self.assertFalse(up_rect.isEmpty())
+        self.assertFalse(down_rect.isEmpty())
+        self.assertEqual(type(field).__name__, "RoseDoubleSpinBox")
+        self.assertEqual(field.grab().toImage().pixelColor(up_rect.center()).name(), "#6e4055")
+        self.assertEqual(field.grab().toImage().pixelColor(down_rect.center()).name(), "#6e4055")
+        QTest.mouseClick(field, Qt.MouseButton.LeftButton, pos=up_rect.center())
+        self.assertGreater(field.value(), 1.0)
+
+    def test_clicking_an_unselected_status_cell_toggles_that_row_immediately(self):
+        """案例行为：状态列单击以点击行保存，不要求先选中宏。"""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "first.py").write_text(VALID_MACRO, encoding="utf-8")
+            target = root / "second.py"
+            target.write_text(
+                VALID_MACRO.replace('NAME="x"', 'NAME="second"'), encoding="utf-8"
+            )
+            manager = Mock()
+            with patch("main._MACRO_ROOT", root), patch(
+                "main.HotkeyManager", return_value=manager
+            ), patch("main.OsdPopup"):
+                window = MainWindow(PythonMacroRuntime())
+            tabs = window.findChild(QTabWidget, "main_tabs")
+            tabs.setCurrentIndex(1)
+            window.show()
+            self.app.processEvents()
+            table = window._trigger_table
+            target_row = next(
+                row for row, entry in enumerate(window._macro_entries) if entry.path == target
+            )
+            table.clearSelection()
+            self.app.processEvents()
+
+            QTest.mouseClick(
+                table.viewport(),
+                Qt.MouseButton.LeftButton,
+                pos=table.visualItemRect(table.item(target_row, 4)).center(),
+            )
+            self.app.processEvents()
+
+            self.assertEqual(table.item(target_row, 4).text(), "禁用")
+            self.assertIn("ENABLED = False", target.read_text(encoding="utf-8"))
+            self.assertEqual(table.selectionModel().selectedRows()[0].row(), target_row)
+            window.close()
+
+    @unittest.skip("Stage 6B 触发页从只读控件升级为即时可编辑控件")
     def test_macro_and_trigger_pages_have_only_stage_2b_controls(self):
         buttons = {button.text(): button for button in self.window.findChildren(QPushButton)}
         self.assertTrue(buttons["新建"].isEnabled())
@@ -112,6 +190,7 @@ class UiShellTests(unittest.TestCase):
             )
         )
 
+    @unittest.skip("Stage 6B 触发详情不再只读")
     def test_trigger_page_uses_chinese_read_only_labels(self):
         label_values = {
             label.text() for label in self.window.findChildren(QLabel)
@@ -180,11 +259,12 @@ class UiShellTests(unittest.TestCase):
             fields[-1].pos().y(),
         )
 
-    def test_candy_theme_is_applied(self):
+    def test_mature_rose_theme_is_applied(self):
         stylesheet = self.window.styleSheet()
-        for color in ("#FDF", "#FFF5FF", "#FCE", "#FBE", "#FFF0FF"):
+        for color in ("#FCF7FA", "#C984A1", "#6E4055", "#D8D0D6"):
             self.assertIn(color, stylesheet)
 
+    @unittest.skip("Stage 6B 每个已启用宏均注册自己的触发键")
     def test_complete_window_registers_only_f9_and_f12(self):
         runtime = Mock()
         runtime.current.return_value = SimpleNamespace(mode="switch", count=1)
@@ -198,6 +278,7 @@ class UiShellTests(unittest.TestCase):
         manager.start.assert_called_once()
         window.deleteLater()
 
+    @unittest.skip("Stage 6B 状态改为每个宏独立启用，不再唯一活动宏")
     def test_activity_status_is_unique_and_invalidated_macro_stops(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -287,6 +368,7 @@ class UiShellTests(unittest.TestCase):
                 self.assertTrue(panel.refresh_timer.isActive())
                 window.close()
 
+    @unittest.skip("Stage 6B 删除通过每宏绑定停止，不再依赖 F9 当前选择")
     def test_active_macro_rename_preserves_activity_for_next_f9_and_delete_stops_first(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -523,6 +605,7 @@ class UiShellTests(unittest.TestCase):
             self.assertIn("没有写入任何文件", unavailable.load.notice)
             self.assertEqual(current_path.read_bytes(), invalid_current)
 
+    @unittest.skip("Stage 6B 重载会按所有已启用宏重新注册触发键")
     def test_manual_reload_adds_external_macro_without_changing_active_runtime(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

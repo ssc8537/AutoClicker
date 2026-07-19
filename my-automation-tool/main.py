@@ -7,8 +7,9 @@ import sys
 from pathlib import Path
 
 import keyboard
-from PySide6.QtCore import QObject, Qt, Signal, Slot
+from PySide6.QtCore import QObject, Qt, QTimer, Signal, Slot
 from PySide6.QtWidgets import (
+    QAbstractSpinBox,
     QApplication,
     QCheckBox,
     QComboBox,
@@ -32,11 +33,14 @@ from PySide6.QtWidgets import (
 from src.core.hotkey_manager import HotkeyManager, TriggerMode
 from src.core.sequence_player import SequencePlayer
 from src.core.script_engine import (
+    PythonMacro,
     PythonMacroRuntime,
     PythonMacroValidationError,
+    load_python_macro,
     run_python_macro_once,
 )
 from src.core.macro_library import MacroEntry, MacroMetadata
+from src.core.macro_file_manager import MacroFileError
 from src.ui.macro_library_panel import MacroLibraryPanel
 from src.ui.game_keybinds_panel import GameKeybindsPanel
 from src.ui.osd_window import OsdPopup
@@ -46,7 +50,10 @@ from src.ui.window_chrome import (
     WindowTitleBar,
     application_icon,
 )
-from src.utils.app_paths import macro_root
+from src.ui.trigger_key_edit import TriggerKeyEdit, display_hotkey, hotkey_from_display
+from src.ui.rose_spin_box import RoseDoubleSpinBox, RoseSpinBox
+from src.ui.sound_effects import SoundEffects
+from src.utils.app_paths import macro_root, resource_root
 from src.utils.logger import get_logger, setup_logging
 
 logger = get_logger(__name__)
@@ -67,13 +74,30 @@ def global_status_notification(disabled: bool) -> tuple[str, bool]:
     return "全局脚本已就绪", True
 
 
+def _enable_per_monitor_v2_dpi() -> None:
+    """必须在创建任何 Qt 窗口前调用，避免 Windows 位图放大造成模糊。"""
+    if sys.platform != "win32":
+        return
+    try:
+        # DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = -4
+        context = ctypes.c_void_p(-4)
+        if ctypes.windll.user32.SetProcessDpiAwarenessContext(context):
+            return
+    except (AttributeError, OSError):
+        pass
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+    except (AttributeError, OSError):
+        pass
+
+
 class _HotkeyDispatcher(QObject):
     """在 Qt 主线程协调热键、OSD 和后台序列播放器。"""
 
-    f9_signal = Signal()
-    f9_stop_signal = Signal()
+    f9_stop_signal = Signal(str)
+    macro_start_signal = Signal(object, str)
     toggle_signal = Signal(bool)
-    player_finished_signal = Signal()
+    player_finished_signal = Signal(str)
 
     macro_error_signal = Signal(str)
 
@@ -82,18 +106,19 @@ class _HotkeyDispatcher(QObject):
         status_label: QLabel,
         osd_popup: OsdPopup,
         macro_runtime: PythonMacroRuntime,
+        sound_effects: SoundEffects | None = None,
     ):
         super().__init__()
         self._status_label = status_label
         self._osd_popup = osd_popup
         self._macro_runtime = macro_runtime
-        self._player = SequencePlayer(on_finished=self._on_player_finished_worker)
+        self._sound_effects = sound_effects
+        self._players: dict[str, SequencePlayer] = {}
+        self._running_names: dict[str, str] = {}
         self._on_natural_finish = None
         self._on_binding_configuration = None
-        self._execution_active = False
-        self._running_macro_name: str | None = None
-        self.f9_signal.connect(self._start_f9, Qt.ConnectionType.QueuedConnection)
         self.f9_stop_signal.connect(self._stop_f9, Qt.ConnectionType.QueuedConnection)
+        self.macro_start_signal.connect(self._start_macro, Qt.ConnectionType.QueuedConnection)
         self.toggle_signal.connect(self._apply_global_status, Qt.ConnectionType.QueuedConnection)
         self.player_finished_signal.connect(
             self._on_player_finished, Qt.ConnectionType.QueuedConnection
@@ -108,90 +133,90 @@ class _HotkeyDispatcher(QObject):
     def set_binding_configuration_callback(self, callback) -> None:
         self._on_binding_configuration = callback
 
-    def on_f9_hook(self) -> None:
-        """由钩子线程重载已保存 Python 宏，再安全转发启动请求。"""
+    def on_macro_hotkey(self, path: Path, binding_id: str) -> None:
+        """每个宏从自身保存路径载入，允许多个播放器并行。"""
         try:
-            if self._macro_runtime.selected_path() is None:
-                self.macro_error_signal.emit("未选择有效宏，F9 未启动")
-                return
-            macro = self._macro_runtime.reload()
-            if self._on_binding_configuration is not None:
-                self._on_binding_configuration(macro)
+            self.macro_start_signal.emit(load_python_macro(path), binding_id)
         except PythonMacroValidationError as exc:
-            logger.warning("F9 未启动：Python 宏无效：%s", exc)
+            logger.warning("%s 未启动：%s", path.stem, exc)
             if self._on_natural_finish is not None:
-                self._on_natural_finish()
-            self.macro_error_signal.emit("Python 宏无效，未启动")
-            return
-        self.f9_signal.emit()
+                self._on_natural_finish(binding_id)
+            self.macro_error_signal.emit(f"{path.stem} 宏无效，未启动")
 
-    def on_f9_stop_hook(self) -> None:
-        """仅由 keyboard 钩子线程调用。"""
-        self.f9_stop_signal.emit()
+    def on_macro_stop_hotkey(self, hotkey: str) -> None:
+        self.f9_stop_signal.emit(hotkey)
 
     def on_toggle_hook(self, disabled: bool) -> None:
         """仅由 keyboard 钩子线程调用。"""
         self.toggle_signal.emit(disabled)
 
-    def _on_player_finished_worker(self) -> None:
+    def _on_player_finished_worker(self, binding_id: str) -> None:
         """播放器线程仅转发信号，绝不直接触碰 Qt 控件。"""
-        self.player_finished_signal.emit()
+        self.player_finished_signal.emit(binding_id)
 
-    @Slot()
-    def _start_f9(self) -> None:
-        macro = self._macro_runtime.current()
-        if macro is None:
-            return
-        if not self._player.play(
+    @Slot(object, str)
+    def _start_macro(self, macro: PythonMacro, binding_id: str) -> None:
+        player = self._players.get(binding_id)
+        if player is None:
+            player = SequencePlayer(
+                on_finished=lambda: self._on_player_finished_worker(binding_id)
+            )
+            self._players[binding_id] = player
+        if not player.play(
             lambda stop_event: run_python_macro_once(macro, stop_event), macro.count
         ):
-            logger.info("F9 启动被忽略：Python 宏已经运行")
+            logger.info("%s 启动被忽略：该宏已经运行", macro.name)
             return
-        self._execution_active = True
-        self._running_macro_name = macro.name
-        logger.info("F9 启动 Python 宏：%s，count=%s", macro.name, macro.count)
+        self._running_names[binding_id] = macro.name
+        logger.info("启动 Python 宏：%s，count=%s", macro.name, macro.count)
         self._osd_popup.show_notification(f"{macro.name} 宏运行中", success=True)
+        sound_effects = getattr(self, "_sound_effects", None)
+        if sound_effects is not None:
+            sound_effects.play_started()
+
+    @Slot(str)
+    def _stop_f9(self, binding_id: str) -> None:
+        player = self._players.get(binding_id)
+        if player is not None:
+            player.stop()
 
     @Slot()
-    def _stop_f9(self) -> None:
-        self._player.stop()
-        if not self._execution_active:
+    def _on_player_finished(self, binding_id: str) -> None:
+        player = self._players.get(binding_id)
+        if player is None:
             return
-        self._execution_active = False
-        name = self._running_macro_name or "当前宏"
-        self._running_macro_name = None
-        logger.info("F9 松开/全局禁用 — Python 宏停止：%s", name)
+        name = self._running_names.pop(binding_id, "当前宏")
+        logger.info("Python 宏自然结束：%s", name)
         self._osd_popup.show_notification(f"{name} 宏已停止", success=False)
-
-    @Slot()
-    def _on_player_finished(self) -> None:
+        sound_effects = getattr(self, "_sound_effects", None)
+        if sound_effects is not None:
+            sound_effects.play_stopped()
         if self._on_natural_finish is not None:
-            self._on_natural_finish()
-        if self._execution_active:
-            self._execution_active = False
-            name = self._running_macro_name or "当前宏"
-            self._running_macro_name = None
-            logger.info("Python 宏自然结束：%s", name)
-            self._osd_popup.show_notification(f"{name} 宏已停止", success=False)
+            self._on_natural_finish(binding_id)
 
     @Slot(str)
     def _show_macro_error(self, message: str) -> None:
         self._osd_popup.show_notification(message, success=False)
 
     def stop_active_execution(self) -> None:
-        self._player.stop()
-        self._player.join(timeout=1.0)
+        for player in list(self._players.values()):
+            player.stop()
+        for player in list(self._players.values()):
+            player.join(timeout=1.0)
 
     @Slot(bool)
     def _apply_global_status(self, disabled: bool) -> None:
         notification, success = global_status_notification(disabled)
         if disabled:
-            self._status_label.setText("🔴 热键已禁用")
-            self._status_label.setStyleSheet("font-size: 20px; color: red; font-weight: bold;")
+            self._status_label.setText("● 热键已禁用")
+            self._status_label.setStyleSheet("font-size: 20px; color: #8B6274; font-weight: 600;")
         else:
-            self._status_label.setText("🟢 热键已启用")
-            self._status_label.setStyleSheet("font-size: 20px; color: green; font-weight: bold;")
+            self._status_label.setText("● 热键已启用")
+            self._status_label.setStyleSheet("font-size: 20px; color: #6E4055; font-weight: 600;")
         self._osd_popup.show_notification(notification, success=success)
+        sound_effects = getattr(self, "_sound_effects", None)
+        if sound_effects is not None:
+            (sound_effects.play_stopped if disabled else sound_effects.play_started)()
 
 
 class MainWindow(QMainWindow):
@@ -204,10 +229,12 @@ class MainWindow(QMainWindow):
         self._hotkey_mgr: HotkeyManager | None = None
         self._macro_entries: list[MacroEntry] = []
         self._active_macro_path: Path | None = None
+        self._registered_macro_hotkeys: set[str] = set()
+        self._sound_effects = SoundEffects()
         self._setup_ui()
         self._osd_popup = OsdPopup(None)
         self._dispatcher = _HotkeyDispatcher(
-            self._status_label, self._osd_popup, macro_runtime
+            self._status_label, self._osd_popup, macro_runtime, self._sound_effects
         )
         self._setup_hotkey()
 
@@ -228,6 +255,7 @@ class MainWindow(QMainWindow):
         self.resize(642, 510)
 
         central_widget = QWidget()
+        central_widget.setObjectName("app_surface")
         self.setCentralWidget(central_widget)
         layout = QVBoxLayout(central_widget)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -251,31 +279,37 @@ class MainWindow(QMainWindow):
         self._tabs = tabs
         self._window_chrome.install(self._title_bar)
         self._on_macro_entries_changed(self._macro_panel.entries)
-        self.setStyleSheet(
+        stylesheet = """
+            QMainWindow, QWidget { background: #FCF7FA; color: #6E4055; font-family: "Microsoft YaHei UI", "Microsoft YaHei"; font-size: 12px; }
+            QWidget#app_surface { border: 1px solid #D9A56C; border-radius: 2px; }
+            QWidget#window_title_bar { background: #F8F0F4; border: 1px solid #E1C7A3; border-bottom: 1px solid #D9A56C; }
+            QLabel#window_title_label { color: #6E4055; font-size: 15px; font-weight: 600; letter-spacing: 0.3px; }
+            QToolButton#window_hide_button, QToolButton#window_minimize_button, QToolButton#window_close_button { background: #FCF7FA; border: 1px solid #D8D0D6; border-radius: 13px; color: #6E4055; font-weight: 600; }
+            QToolButton#window_close_button { color: #9B536F; border-color: #C984A1; }
+            QToolButton#window_hide_button:hover, QToolButton#window_minimize_button:hover { background: #F1E2E9; border-color: #C984A1; }
+            QToolButton#window_close_button:hover { background: #C984A1; color: #FFFFFF; }
+            QWidget#vertical_resize_handle { background: #F8F0F4; border-top: 1px solid #D8D0D6; }
+            QTabWidget::pane { background: #FCF7FA; border: 1px solid #E1C7A3; border-top: none; }
+            QTabBar::tab { background: #F5EAF0; min-width: 160px; max-width: 160px; height: 40px; padding: 0; color: #6E4055; font-size: 16px; font-weight: 600; border-right: 1px solid #E4D9DF; }
+            QTabBar::tab:hover { background: #F0E0E8; color: #6E4055; }
+            QTabBar::tab:selected { background: #FCF7FA; color: #9B536F; border-top: 2px solid #C984A1; }
+            QGroupBox { background: #FFFFFF; border: 1px solid #E1C7A3; border-radius: 6px; margin-top: 11px; padding: 11px 8px 8px; font-weight: 600; }
+            QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; color: #6E4055; background: #FFFFFF; }
+            QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox { background: #FFFFFF; border: 1px solid #D8D0D6; border-radius: 4px; padding: 4px; min-height: 22px; selection-background-color: #C984A1; selection-color: #FFFFFF; }
+            QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus { border: 1px solid #C984A1; background: #FFFDFE; }
+            QSpinBox::up-button, QDoubleSpinBox::up-button { subcontrol-origin: border; subcontrol-position: top right; width: 20px; background: #F8F0F4; border-left: 1px solid #D8D0D6; border-bottom: 1px solid #D8D0D6; }
+            QSpinBox::down-button, QDoubleSpinBox::down-button { subcontrol-origin: border; subcontrol-position: bottom right; width: 20px; background: #F8F0F4; border-left: 1px solid #D8D0D6; }
+            QSpinBox::up-button:hover, QSpinBox::down-button:hover, QDoubleSpinBox::up-button:hover, QDoubleSpinBox::down-button:hover { background: #EFDDE6; }
+            QComboBox::drop-down { border: none; width: 20px; } QComboBox QAbstractItemView { background: #FFFFFF; border: 1px solid #D8D0D6; selection-background-color: #F1E2E9; selection-color: #6E4055; }
+            QTableWidget { background: #FFFFFF; alternate-background-color: #FCF7FA; border: 1px solid #D8D0D6; gridline-color: #EEE5E9; selection-background-color: #EAF7FD; selection-color: #6E4055; }
+            QTableWidget::item:hover, QTableWidget::item:selected { background: #EAF7FD; color: #6E4055; }
+            QHeaderView::section { background: #F8F0F4; border: none; border-bottom: 1px solid #D8D0D6; padding: 6px; color: #6E4055; font-weight: 600; }
+            QPushButton { background: #FAF3F6; border: 1px solid #C984A1; border-radius: 4px; min-height: 26px; padding: 4px 10px; color: #6E4055; font-weight: 600; }
+            QPushButton:hover:!disabled { background: #EFDDE6; border-color: #9B536F; } QPushButton:pressed:!disabled { background: #D9A9BD; color: #FFFFFF; }
+            QPushButton:disabled, QCheckBox:disabled, QComboBox:disabled, QLineEdit:disabled { color: #9A858F; background: #F3EDF0; border-color: #E1D8DD; }
+            QScrollArea { border: none; background: #FCF7FA; } QScrollBar:vertical { background: #F3EDF0; width: 8px; margin: 2px; } QScrollBar::handle:vertical { background: #CDB7C1; border-radius: 4px; min-height: 24px; } QScrollBar::handle:vertical:hover { background: #C984A1; }
             """
-            QMainWindow, QWidget { background: #FDF; color: black; font-family: "Microsoft YaHei"; font-size: 12px; }
-            QWidget#window_title_bar { background: #FCE; border: 1px solid #D8A7C7; }
-            QLabel#window_title_label { color: #7A1E4C; font-size: 15px; font-weight: bold; }
-            QToolButton#window_hide_button, QToolButton#window_minimize_button, QToolButton#window_close_button { border: 1px solid #D8A7C7; border-radius: 13px; color: #5D294B; font-weight: bold; }
-            QToolButton#window_hide_button { background: #F6C5D9; }
-            QToolButton#window_minimize_button { background: #F8B8D0; }
-            QToolButton#window_close_button { background: #E98AAA; color: white; }
-            QToolButton#window_hide_button:hover, QToolButton#window_minimize_button:hover, QToolButton#window_close_button:hover { background: #D96C98; color: white; }
-            QWidget#vertical_resize_handle { background: #FCE; border-top: 1px solid #D8A7C7; }
-            QTabWidget::pane { border: 1px solid #D8A7C7; border-top: none; }
-            QTabBar::tab { background: #FCE; min-width: 160px; max-width: 160px; height: 40px; padding: 0; color: #5D294B; font-size: 17px; font-weight: bold; }
-            QTabBar::tab:hover { background: #FBE; }
-            QTabBar::tab:selected { background: #FDF; color: #9B2860; }
-            QGroupBox { background: #FFF5FF; border: 1px solid #D8A7C7; margin-top: 10px; padding: 10px 8px 8px; font-weight: bold; }
-            QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }
-            QLineEdit, QComboBox { background: #FFF5FF; border: 1px solid #D8A7C7; padding: 4px; min-height: 22px; }
-            QTableWidget { background: #FFF; alternate-background-color: #FFF5FF; border: 1px solid #D8A7C7; gridline-color: #F0CDE0; selection-background-color: #FCE; selection-color: #5D294B; }
-            QHeaderView::section { background: #FFF0FF; border: none; border-bottom: 1px solid #D8A7C7; padding: 6px; color: #5D294B; font-weight: bold; }
-            QPushButton { background: #FCE; border: 1px solid #D8A7C7; min-height: 26px; padding: 4px 10px; }
-            QPushButton:hover:!disabled { background: #FBE; }
-            QPushButton:disabled, QCheckBox:disabled, QComboBox:disabled { color: #8F7785; background: #F7EAF1; border-color: #E3CCD9; }
-            """
-        )
+        self.setStyleSheet(stylesheet)
         self._center_on_screen()
 
     def _center_on_screen(self) -> None:
@@ -319,6 +353,7 @@ class MainWindow(QMainWindow):
             logger.warning("活动宏已删除或失效，已安全停用")
         self._macro_panel.set_active_path(self._active_macro_path)
         self._render_trigger_rows()
+        self._configure_independent_hotkeys()
 
     def _entry_for_path(self, path: Path | None) -> MacroEntry | None:
         if path is None:
@@ -347,29 +382,54 @@ class MainWindow(QMainWindow):
         # 窗口宽度固定，前三列必须为“状态”列保留最小宽度；否则 Qt 会在
         # 选中单元格时自动横向滚动，导致最左侧“名称”列被挤出可见区域。
         table.setColumnWidth(0, 38)
-        table.setColumnWidth(1, 116)
-        table.setColumnWidth(2, 52)
-        table.setColumnWidth(3, 70)
+        # 左表在 642 固定宽窗口中可用 472px；列宽相加刚好填满，
+        # 状态右侧不再留下空白，并优先给长宏名称空间。
+        table.setColumnWidth(1, 258)
+        table.setColumnWidth(2, 70)
+        table.setColumnWidth(3, 62)
+        table.setColumnWidth(4, 44)
+        table.horizontalHeader().setStretchLastSection(False)
         table.itemSelectionChanged.connect(self._show_selected_trigger_detail)
         table.cellClicked.connect(self._on_trigger_cell_clicked)
         self._trigger_table = table
         layout.addWidget(table, 1)
 
-        detail = QGroupBox("触发详情（只读）")
+        detail = QGroupBox("触发详情（自动保存）")
         # 主窗口为固定宽度；固定右栏才能保证左侧四列表不会被内容建议尺寸挤压。
-        detail.setFixedWidth(210)
-        form = QFormLayout(detail)
-        form.setVerticalSpacing(9)
-        form.addRow("热键", self._readonly_field("F9"))
-        self._trigger_mode_field = self._readonly_field("未选择有效宏")
-        self._trigger_count_field = self._readonly_field("未选择有效宏")
-        self._trigger_speed_field = self._readonly_field("未选择有效宏")
-        self._trigger_status_field = self._readonly_field("未选择有效宏")
-        form.addRow("模式", self._trigger_mode_field)
-        form.addRow("次数", self._trigger_count_field)
-        form.addRow("速度", self._trigger_speed_field)
-        form.addRow("状态", self._trigger_status_field)
-        form.addRow(self._disabled_button("保存触发设置"))
+        detail.setFixedWidth(134)
+        form = QVBoxLayout(detail)
+        form.setContentsMargins(7, 10, 7, 7)
+        form.setSpacing(3)
+        self._trigger_hotkey_field = TriggerKeyEdit()
+        self._trigger_mode_field = QComboBox()
+        self._trigger_mode_field.addItem("切换", "switch")
+        self._trigger_mode_field.addItem("按下", "down")
+        self._trigger_count_field = RoseSpinBox()
+        self._trigger_count_field.setRange(0, 99)
+        self._trigger_count_field.setSpecialValueText("持续")
+        self._trigger_count_field.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.UpDownArrows)
+        self._trigger_speed_field = RoseDoubleSpinBox()
+        self._trigger_speed_field.setRange(0.01, 8.0)
+        self._trigger_speed_field.setSingleStep(0.1)
+        self._trigger_speed_field.setDecimals(2)
+        self._trigger_speed_field.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.UpDownArrows)
+        self._trigger_status_field = QComboBox()
+        self._trigger_status_field.addItem("启用", True)
+        self._trigger_status_field.addItem("禁用", False)
+        for label, field in (
+            ("热键", self._trigger_hotkey_field),
+            ("模式", self._trigger_mode_field),
+            ("次数", self._trigger_count_field),
+            ("速度", self._trigger_speed_field),
+            ("状态", self._trigger_status_field),
+        ):
+            form.addWidget(QLabel(label))
+            form.addWidget(field)
+        self._trigger_hotkey_field.hotkey_selected.connect(self._save_trigger_settings)
+        self._trigger_mode_field.currentIndexChanged.connect(self._save_trigger_settings)
+        self._trigger_count_field.valueChanged.connect(self._save_trigger_settings)
+        self._trigger_speed_field.valueChanged.connect(self._save_trigger_settings)
+        self._trigger_status_field.currentIndexChanged.connect(self._save_trigger_settings)
         layout.addWidget(detail)
         return page
 
@@ -384,17 +444,16 @@ class MainWindow(QMainWindow):
         for row, entry in enumerate(self._macro_entries):
             if entry.valid:
                 assert entry.macro is not None
-                mode = "按住" if entry.macro.mode == "down" else "切换"
-                enabled = entry.path == self._active_macro_path
+                mode = "按下" if entry.macro.mode == "down" else "切换"
                 values = (
                     str(row + 1),
                     entry.path.stem,
-                    "F9",
+                    display_hotkey(entry.macro.hotkey),
                     mode,
-                    "启用" if enabled else "禁用",
+                    "启用" if entry.macro.enabled else "禁用",
                 )
             else:
-                values = (str(row + 1), entry.path.stem, "—", "—", "不可启用")
+                values = (str(row + 1), entry.path.stem, "—", "—", "错误")
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
@@ -402,9 +461,10 @@ class MainWindow(QMainWindow):
                 if column == 1 and not entry.valid:
                     item.setForeground(Qt.GlobalColor.red)
                 if column == 4:
-                    item.setForeground(
-                        Qt.GlobalColor.green if value == "启用" else Qt.GlobalColor.red
-                    )
+                    if value == "启用":
+                        item.setForeground(Qt.GlobalColor.green)
+                    else:
+                        item.setForeground(Qt.GlobalColor.red)
                 self._trigger_table.setItem(row, column, item)
             if entry.path == self._active_macro_path or entry.path == selected_path:
                 selected_row = row
@@ -422,32 +482,107 @@ class MainWindow(QMainWindow):
         rows = self._trigger_table.selectionModel().selectedRows()
         entry = self._macro_entries[rows[0].row()] if rows else None
         if entry is None or not entry.valid:
-            values = ("—", "—", "—", "不可启用" if entry else "未选择有效宏")
+            self._set_trigger_fields_enabled(False)
+            return
         else:
             assert entry.macro is not None
-            mode = "按住" if entry.macro.mode == "down" else "切换"
-            values = (
-                mode,
-                str(entry.macro.count),
-                str(entry.macro.speed),
-                "启用" if entry.path == self._active_macro_path else "禁用",
-            )
-        for field, value in zip(
-            (
+            self._set_trigger_fields_enabled(True)
+            # 回填被点击行的详情时不能伪装成用户录入热键；否则状态列第一下
+            # 点击会先选中行，再把刚切换的状态保存回旧值。
+            for field in (
+                self._trigger_hotkey_field,
                 self._trigger_mode_field,
                 self._trigger_count_field,
                 self._trigger_speed_field,
                 self._trigger_status_field,
-            ),
-            values,
-        ):
-            field.setText(value)
+            ):
+                field.blockSignals(True)
+            self._trigger_hotkey_field.set_hotkey(entry.macro.hotkey)
+            self._trigger_mode_field.setCurrentIndex(1 if entry.macro.mode == "down" else 0)
+            self._trigger_count_field.setValue(entry.macro.count)
+            self._trigger_speed_field.setValue(entry.macro.speed)
+            self._trigger_status_field.setCurrentIndex(0 if entry.macro.enabled else 1)
+            for field in (
+                self._trigger_hotkey_field,
+                self._trigger_mode_field,
+                self._trigger_count_field,
+                self._trigger_speed_field,
+                self._trigger_status_field,
+            ):
+                field.blockSignals(False)
 
     @Slot(int, int)
     def _on_trigger_cell_clicked(self, row: int, column: int) -> None:
         self._reset_trigger_horizontal_scroll()
-        if column == 4:
-            self._toggle_trigger_activity(row)
+        if column != 4:
+            return
+        entry = self._macro_entries[row]
+        if not entry.valid or entry.macro is None:
+            return
+        try:
+            # 不依赖当前选中行：源码同样允许直接点击任意行的状态开关。
+            self._macro_panel.update_trigger_settings(
+                entry.path,
+                hotkey=entry.macro.hotkey,
+                mode=entry.macro.mode,
+                count=entry.macro.count,
+                speed=entry.macro.speed,
+                enabled=not entry.macro.enabled,
+            )
+        except MacroFileError as exc:
+            QMessageBox.warning(self, "保存触发设置失败", str(exc))
+
+    def _set_trigger_fields_enabled(self, enabled: bool) -> None:
+        for field in (self._trigger_hotkey_field, self._trigger_mode_field, self._trigger_count_field, self._trigger_speed_field, self._trigger_status_field):
+            field.setEnabled(enabled)
+
+    @Slot()
+    def _save_trigger_settings(self, *_unused) -> None:
+        rows = self._trigger_table.selectionModel().selectedRows()
+        if not rows:
+            return
+        entry = self._macro_entries[rows[0].row()]
+        if not entry.valid:
+            return
+        try:
+            self._macro_panel.update_trigger_settings(
+                entry.path,
+                hotkey=self._trigger_hotkey_from_display(),
+                mode=self._trigger_mode_field.currentData(),
+                count=self._trigger_count_field.value(),
+                speed=self._trigger_speed_field.value(),
+                enabled=bool(self._trigger_status_field.currentData()),
+            )
+        except MacroFileError as exc:
+            QMessageBox.warning(self, "保存触发设置失败", str(exc))
+
+    def _trigger_hotkey_from_display(self) -> str:
+        return hotkey_from_display(self._trigger_hotkey_field.text())
+
+    def _configure_independent_hotkeys(self) -> None:
+        """刷新每个已启用宏的实时触发绑定；重复热键允许并发。"""
+        manager = getattr(self, "_hotkey_mgr", None)
+        if manager is None or not hasattr(self, "_dispatcher"):
+            return
+        if not hasattr(self, "_registered_macro_hotkeys"):
+            self._registered_macro_hotkeys = set()
+        for binding_id in self._registered_macro_hotkeys:
+            manager.unregister(binding_id)
+        self._registered_macro_hotkeys.clear()
+        for entry in self._macro_entries:
+            if not entry.valid or entry.macro is None or not entry.macro.enabled:
+                continue
+            hotkey = entry.macro.hotkey
+            binding_id = str(entry.path)
+            manager.register(
+                hotkey,
+                lambda path=entry.path, key=binding_id: self._dispatcher.on_macro_hotkey(path, key),
+                mode=TriggerMode[entry.macro.mode.upper()],
+                stop_callback=lambda key=binding_id: self._dispatcher.on_macro_stop_hotkey(key),
+                stop_on_release=True,
+                binding_id=binding_id,
+            )
+            self._registered_macro_hotkeys.add(binding_id)
 
     def _reset_trigger_horizontal_scroll(self) -> None:
         """名称列始终可见；隐藏的横向滚动条不得保留偏移。"""
@@ -469,14 +604,8 @@ class MainWindow(QMainWindow):
 
     def _delete_macro(self, path: Path) -> None:
         """确认后先停止/停用，再请求受控文件服务移入回收站。"""
-        if path == self._active_macro_path:
-            self._dispatcher.stop_active_execution()
-            self._active_macro_path = None
-            self._macro_runtime.set_selected_path(None)
-            if self._hotkey_mgr is not None:
-                self._hotkey_mgr.mark_finished("f9")
-            self._macro_panel.set_active_path(None)
-            self._render_trigger_rows()
+        if self._hotkey_mgr is not None:
+            self._hotkey_mgr.unregister(str(path))
         try:
             self._macro_panel.delete_path_after_stop(path)
         except MacroFileError as exc:
@@ -519,6 +648,9 @@ class MainWindow(QMainWindow):
         return combo
 
     def _build_settings_page(self) -> QWidget:
+        if not hasattr(self, "_sound_effects"):
+            # 离屏 UI 测试可直接构建页面；正式入口会在 _setup_ui 前创建它。
+            self._sound_effects = SoundEffects()
         page = QWidget()
         page_layout = QVBoxLayout(page)
         page_layout.setContentsMargins(0, 0, 0, 0)
@@ -539,6 +671,10 @@ class MainWindow(QMainWindow):
         layout.addRow("全局开关", self._readonly_field("F12"))
         layout.addRow("F2", self._readonly_field("仅 UI 占位，不注册"))
         layout.addRow("OSD", self._readonly_field("沿用既有红绿提示，不提供样式编辑"))
+        self._sound_enabled_field = QCheckBox("启用提示音（默认关闭）")
+        self._sound_enabled_field.setChecked(self._sound_effects.enabled)
+        self._sound_enabled_field.toggled.connect(self._sound_effects.set_enabled)
+        layout.addRow("提示音", self._sound_enabled_field)
         layout.addRow("主题", self._readonly_field("Candy 粉红主题（固定）"))
         self._game_keybinds_panel = GameKeybindsPanel()
         layout.addRow("共享游戏键位", self._game_keybinds_panel)
@@ -551,25 +687,14 @@ class MainWindow(QMainWindow):
 
     def _setup_hotkey(self) -> None:
         self._hotkey_mgr = HotkeyManager(int(self.winId()))
-        self._hotkey_mgr.register(
-            "f9",
-            self._dispatcher.on_f9_hook,
-            mode=TriggerMode.SWITCH,
-            stop_callback=self._dispatcher.on_f9_stop_hook,
-            stop_on_release=False,
-        )
         self._hotkey_mgr.set_global_disable_key("f12")
         self._hotkey_mgr.on_toggle(self._dispatcher.on_toggle_hook)
         self._dispatcher.set_natural_finish_callback(
-            lambda: self._hotkey_mgr.mark_finished("f9")
-        )
-        self._dispatcher.set_binding_configuration_callback(
-            lambda updated: self._hotkey_mgr.update_binding_configuration(
-                "f9", TriggerMode[updated.mode.upper()], updated.count == 0
-            )
+            lambda hotkey: self._hotkey_mgr.mark_finished(hotkey)
         )
         self._hotkey_mgr.start()
-        logger.info("C1 宏库已就绪：F9 等待活动宏，F12=全局启停")
+        self._configure_independent_hotkeys()
+        logger.info("宏触发已就绪：每个启用宏使用自己的按键，F12=全局启停")
 
     def closeEvent(self, event) -> None:
         logger.info("程序退出")
@@ -606,7 +731,31 @@ def _set_windows_app_identity() -> None:
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(_WINDOWS_APP_ID)
 
 
+def show_startup_window(window: QMainWindow) -> None:
+    """启动时把窗口带到前台一次，不改变之后的最小化或隐藏语义。"""
+    window.show()
+    _activate_startup_window(window)
+    QTimer.singleShot(0, lambda: _activate_startup_window(window))
+
+
+def _activate_startup_window(window: QMainWindow) -> None:
+    window.raise_()
+    window.activateWindow()
+    if sys.platform != "win32" or not hasattr(window, "winId"):
+        return
+    try:
+        hwnd = int(window.winId())
+        user32 = ctypes.windll.user32
+        flags = 0x0001 | 0x0002 | 0x0040  # NOSIZE | NOMOVE | SHOWWINDOW
+        user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, flags)  # 临时前置
+        user32.SetForegroundWindow(hwnd)
+        user32.SetWindowPos(hwnd, -2, 0, 0, 0, 0, flags)  # 恢复非永久置顶
+    except (AttributeError, OSError, TypeError):
+        pass
+
+
 def main() -> int:
+    _enable_per_monitor_v2_dpi()
     setup_logging()
     logger.info("自动连招启动")
     macro_runtime = PythonMacroRuntime()
@@ -618,7 +767,7 @@ def main() -> int:
     if not _is_admin():
         logger.warning("当前未以管理员权限运行，某些游戏可能无法接收模拟输入")
     window = MainWindow(macro_runtime)
-    window.show()
+    show_startup_window(window)
     return app.exec()
 
 

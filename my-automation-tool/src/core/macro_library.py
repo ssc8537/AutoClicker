@@ -5,6 +5,7 @@ import ast
 from dataclasses import dataclass
 from pathlib import Path
 
+
 @dataclass(frozen=True)
 class MacroMetadata:
     """仅供宏库显示和活动状态使用的静态元数据。"""
@@ -14,6 +15,7 @@ class MacroMetadata:
     mode: str
     count: int
     speed: float
+    enabled: bool
 
 
 @dataclass(frozen=True)
@@ -66,7 +68,7 @@ def validate_macro_source(source: str, *, filename: str = "<Python 宏>") -> Mac
 
     values: dict[str, object] = {}
     run_nodes: list[ast.FunctionDef] = []
-    metadata_names = {"NAME", "HOTKEY", "MODE", "COUNT", "SPEED"}
+    metadata_names = {"NAME", "HOTKEY", "MODE", "COUNT", "SPEED", "ENABLED"}
     for node in module.body:
         if isinstance(node, ast.FunctionDef) and node.name == "run":
             run_nodes.append(node)
@@ -85,18 +87,96 @@ def validate_macro_source(source: str, *, filename: str = "<Python 宏>") -> Mac
     mode = values.get("MODE")
     count = values.get("COUNT")
     speed = values.get("SPEED")
+    enabled = values.get("ENABLED", True)
     if not isinstance(name, str) or not name.strip():
         raise ValueError("NAME 必须是非空字符串")
-    if hotkey != "f9":
-        raise ValueError("阶段 3 的 HOTKEY 必须是 'f9'")
+    hotkey = normalize_macro_hotkey(hotkey)
     if mode not in {"switch", "down"}:
         raise ValueError("MODE 必须是 'switch' 或 'down'")
     if not _is_int(count) or not 0 <= count <= 99:
         raise ValueError("COUNT 必须是 0 至 99 的整数")
     if not _is_number(speed) or not 0.01 <= float(speed) <= 8.0:
         raise ValueError("SPEED 必须是 0.01 至 8.0 的数字")
+    if not isinstance(enabled, bool):
+        raise ValueError("ENABLED 必须是 True 或 False")
     _validate_run_signature(run_nodes)
-    return MacroMetadata(name, hotkey, mode, count, float(speed))
+    return MacroMetadata(name, hotkey, mode, count, float(speed), enabled)
+
+
+MOUSE_TRIGGER_KEYS = frozenset({
+    "mouse_left", "mouse_right", "mouse_middle", "mouse_back", "mouse_forward",
+})
+_KEYBOARD_TRIGGER_ALIASES = {
+    " ": "space",
+    "return": "enter",
+    "esc": "esc",
+}
+
+
+def normalize_macro_hotkey(value: object) -> str:
+    """校验 UI 捕获的单一键盘键或鼠标侧键；F12 永远保留。"""
+    if not isinstance(value, str):
+        raise ValueError("HOTKEY 必须是单个键盘键或鼠标侧键")
+    hotkey = value.strip().lower()
+    hotkey = _KEYBOARD_TRIGGER_ALIASES.get(hotkey, hotkey)
+    if hotkey in MOUSE_TRIGGER_KEYS:
+        return hotkey
+    if hotkey == "f12":
+        raise ValueError("F12 为全局停止键，不能绑定宏")
+    if not hotkey or "+" in hotkey or len(hotkey) > 24:
+        raise ValueError("HOTKEY 必须是单个键盘键或鼠标侧键")
+    return hotkey
+
+
+def replace_trigger_metadata(
+    source: str,
+    *,
+    hotkey: str,
+    mode: str,
+    count: int,
+    speed: float,
+    enabled: bool,
+    filename: str = "<Python 宏>",
+) -> str:
+    """原子保存前只替换触发元数据，不触碰用户的 run(player) 代码。"""
+    metadata = {
+        "HOTKEY": normalize_macro_hotkey(hotkey),
+        "MODE": mode,
+        "COUNT": count,
+        "SPEED": speed,
+        "ENABLED": enabled,
+    }
+    try:
+        module = ast.parse(source, filename=filename)
+    except SyntaxError as exc:
+        raise ValueError(f"Python 宏语法或读取失败: {exc}") from exc
+    replacements: list[tuple[int, int, str]] = []
+    present: set[str] = set()
+    last_metadata_end = 0
+    for node in module.body:
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target] if isinstance(node, ast.AnnAssign) else []
+        value = node.value if isinstance(node, (ast.Assign, ast.AnnAssign)) else None
+        for target in targets:
+            if not isinstance(target, ast.Name) or target.id not in metadata:
+                continue
+            if value is None:
+                raise ValueError(f"{target.id} 必须是字面量")
+            present.add(target.id)
+            start = _source_offset(source, value.lineno, value.col_offset)
+            end = _source_offset(source, value.end_lineno, value.end_col_offset)
+            replacements.append((start, end, repr(metadata[target.id])))
+            last_metadata_end = max(last_metadata_end, _source_offset(source, node.end_lineno, node.end_col_offset))
+    if {"HOTKEY", "MODE", "COUNT", "SPEED"} - present:
+        raise ValueError("宏缺少触发元数据")
+    if "ENABLED" not in present:
+        # 先在原始偏移中插入，随后从后向前替换元数据。若先替换 SPEED=1
+        # 为 1.0，旧偏移会把 ENABLED 插进数值中，状态列首次点击就会保存失败。
+        insertion = f"\nENABLED = {metadata['ENABLED']!r}"
+        source = f"{source[:last_metadata_end]}{insertion}{source[last_metadata_end:]}"
+    for start, end, replacement in sorted(replacements, reverse=True):
+        source = f"{source[:start]}{replacement}{source[end:]}"
+    validate_macro_source(source, filename=filename)
+    return source
 
 
 def replace_name_metadata(source: str, name: str, *, filename: str = "<Python 宏>") -> str:

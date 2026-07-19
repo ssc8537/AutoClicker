@@ -7,7 +7,11 @@ from ctypes import wintypes
 from pathlib import Path
 from uuid import uuid4
 
-from src.core.macro_library import replace_name_metadata, validate_macro_source
+from src.core.macro_library import (
+    replace_name_metadata,
+    replace_trigger_metadata,
+    validate_macro_source,
+)
 
 
 class MacroFileError(ValueError):
@@ -15,10 +19,11 @@ class MacroFileError(ValueError):
 
 
 DEFAULT_MACRO_TEMPLATE = '''NAME = {name!r}
-HOTKEY = "f9"
+HOTKEY = "f1"
 MODE = "down"
 COUNT = 1
 SPEED = 1.0
+ENABLED = True
 
 
 def run(player):
@@ -85,6 +90,33 @@ class MacroFileManager:
     ) -> Path:
         current = self._owned_existing_path(path)
         return self.update(current, name, self.read_source(current), active_path=active_path)
+
+    def update_trigger_settings(
+        self,
+        path: str | Path,
+        *,
+        hotkey: str,
+        mode: str,
+        count: int,
+        speed: float,
+        enabled: bool,
+    ) -> None:
+        """由触发页即时保存元数据，用户动作代码保持原样。"""
+        current = self._owned_existing_path(path)
+        try:
+            source = self.read_source(current)
+            candidate = replace_trigger_metadata(
+                source,
+                hotkey=hotkey,
+                mode=mode,
+                count=count,
+                speed=speed,
+                enabled=enabled,
+                filename=str(current),
+            )
+        except ValueError as exc:
+            raise MacroFileError(str(exc)) from exc
+        self._atomic_write(current, candidate)
 
     def read_source(self, path: str | Path) -> str:
         current = self._owned_existing_path(path)

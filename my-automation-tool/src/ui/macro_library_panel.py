@@ -236,6 +236,27 @@ class MacroLibraryPanel(QWidget):
         self._active_path = path
         self._update_action_state()
 
+    def update_trigger_settings(
+        self,
+        path: Path,
+        *,
+        hotkey: str,
+        mode: str,
+        count: int,
+        speed: float,
+        enabled: bool,
+    ) -> None:
+        """触发页的每一次有效编辑均即时原子保存并刷新。"""
+        self._manager.update_trigger_settings(
+            path,
+            hotkey=hotkey,
+            mode=mode,
+            count=count,
+            speed=speed,
+            enabled=enabled,
+        )
+        self._refresh_and_select(path)
+
     @Slot(str)
     def _schedule_refresh(self, _changed_path: str) -> None:
         self._refresh_timer.start()

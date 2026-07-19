@@ -9,6 +9,7 @@ from types import ModuleType
 
 from src.core.script_player import ScriptInterrupted, ScriptPlayer
 from src.core.game_keybinds import GameKeybinds, load_game_keybinds
+from src.core.macro_library import normalize_macro_hotkey
 
 
 class PythonMacroValidationError(ValueError):
@@ -22,6 +23,7 @@ class PythonMacro:
     mode: str
     count: int
     speed: float
+    enabled: bool
     run: object
 
 
@@ -76,18 +78,23 @@ def load_python_macro(path: str | Path) -> PythonMacro:
     mode = getattr(module, "MODE", None)
     count = getattr(module, "COUNT", None)
     speed = getattr(module, "SPEED", None)
+    enabled = getattr(module, "ENABLED", True)
     run = getattr(module, "run", None)
 
     if not isinstance(name, str) or not name.strip():
         raise PythonMacroValidationError("NAME 必须是非空字符串")
-    if hotkey != "f9":
-        raise PythonMacroValidationError("阶段 3 的 HOTKEY 必须是 'f9'")
+    try:
+        hotkey = normalize_macro_hotkey(hotkey)
+    except ValueError as exc:
+        raise PythonMacroValidationError(str(exc)) from exc
     if mode not in {"switch", "down"}:
         raise PythonMacroValidationError("MODE 必须是 'switch' 或 'down'")
     if not _is_int(count) or not 0 <= count <= 99:
         raise PythonMacroValidationError("COUNT 必须是 0 至 99 的整数")
     if not _is_number(speed) or not 0.01 <= float(speed) <= 8.0:
         raise PythonMacroValidationError("SPEED 必须是 0.01 至 8.0 的数字")
+    if not isinstance(enabled, bool):
+        raise PythonMacroValidationError("ENABLED 必须是 True 或 False")
     if not callable(run):
         raise PythonMacroValidationError("必须定义可调用的 run(player) 函数")
     parameters = list(inspect.signature(run).parameters.values())
@@ -102,7 +109,7 @@ def load_python_macro(path: str | Path) -> PythonMacro:
         }
     ):
         raise PythonMacroValidationError("run 必须精确为 run(player)")
-    return PythonMacro(name, hotkey, mode, count, float(speed), run)
+    return PythonMacro(name, hotkey, mode, count, float(speed), enabled, run)
 
 
 def run_python_macro_once(

@@ -21,8 +21,8 @@ from src.utils.app_paths import resource_root
 
 
 def application_icon() -> QIcon:
-    """返回窗口和托盘共用的自有粉色应用图标。"""
-    asset_path = resource_root() / "assets" / "myautoplayer-pink.svg"
+    """返回窗口和托盘共用的自有粉发头像图标。"""
+    asset_path = resource_root() / "assets" / "myautoplayer-pink.ico"
     return QIcon(str(asset_path))
 
 

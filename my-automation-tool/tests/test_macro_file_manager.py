@@ -20,6 +20,24 @@ def run(player):
 
 
 class MacroFileManagerTests(unittest.TestCase):
+
+    def test_trigger_settings_are_saved_without_changing_run_code(self):
+        with tempfile.TemporaryDirectory() as directory:
+            manager = MacroFileManager(directory)
+            path = manager.create("trigger")
+            source = manager.read_source(path).replace("pass", 'player.tap("e")')
+            manager.update(path, "trigger", source)
+            manager.update_trigger_settings(
+                path, hotkey="mouse_back", mode="switch", count=3,
+                speed=1.5, enabled=False,
+            )
+            saved = manager.read_source(path)
+            self.assertIn("HOTKEY = 'mouse_back'", saved)
+            self.assertIn("MODE = 'switch'", saved)
+            self.assertIn("COUNT = 3", saved)
+            self.assertIn("SPEED = 1.5", saved)
+            self.assertIn("ENABLED = False", saved)
+            self.assertIn('player.tap("e")', saved)
     def setUp(self):
         self.temporary_directory = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary_directory.name)

@@ -1,42 +1,40 @@
-﻿"""热键管理器 — 全局热键注册、焦点检测、触发模式分发。
+"""全局单键和鼠标侧键触发管理；每个宏可独立并发运行。"""
+from __future__ import annotations
 
-参考：Quickinput trigger.cpp 的 switch/case 三种触发模式状态机。
-底层使用 keyboard 库实现全局钩子。
-
-用法：
-    from src.core.hotkey_manager import HotkeyManager
-    mgr = HotkeyManager(main_window_hwnd)
-    mgr.register("f9", callback)  # 注册 F9 热键
-    mgr.start()
-"""
 import ctypes
 import threading
 from ctypes import wintypes
 from enum import IntEnum
 
 import keyboard
+from pynput import mouse
 
 
 class TriggerMode(IntEnum):
-    """触发模式（参考 Quickinput macro.h enum TriggerMode）。
+    """DOWN 为按住，SWITCH 为按下一次启动、再按一次停止。"""
 
-    SWITCH — 切换：按下启动/停止切换
-    DOWN   — 按下执行；无限循环时松开停止，有限次数时完成后停止
-    """
     SWITCH = 0
     DOWN = 1
 
 
+MOUSE_HOTKEYS = frozenset({
+    "mouse_left", "mouse_right", "mouse_middle", "mouse_back", "mouse_forward",
+})
+
+
 class HotkeyBinding:
-    """单个热键绑定。"""
+    """一个宏的触发配置。相同热键允许有多个绑定。"""
 
     __slots__ = (
-        "hotkey", "mode", "callback", "stop_callback", "stop_on_release",
-        "is_running",
+        "binding_id", "hotkey", "mode", "callback", "stop_callback",
+        "stop_on_release", "is_running",
     )
 
-    def __init__(self, hotkey: str, mode: TriggerMode,
-                 callback, stop_callback=None, stop_on_release: bool = True):
+    def __init__(
+        self, binding_id: str, hotkey: str, mode: TriggerMode,
+        callback, stop_callback=None, stop_on_release: bool = True,
+    ):
+        self.binding_id = binding_id
         self.hotkey = hotkey
         self.mode = mode
         self.callback = callback
@@ -46,93 +44,106 @@ class HotkeyBinding:
 
 
 class HotkeyManager:
-    """全局热键管理器。
-
-    核心行为（参考 Quickinput trigger.cpp）：
-    - 全局禁用状态下所有热键失效
-    - 鼠标在程序窗口内时抑制触发
-    - 两种触发模式：SWITCH / DOWN
-    """
+    """动态注册全局触发；重复热键会同时分发给所有启用宏。"""
 
     def __init__(self, main_window_hwnd: int = 0):
-        self._bindings: dict[str, HotkeyBinding] = {}
-        self._global_disabled = True  # 安全机制：启动即禁用
+        self._bindings_by_id: dict[str, HotkeyBinding] = {}
+        self._bindings_by_hotkey: dict[str, dict[str, HotkeyBinding]] = {}
+        self._global_disabled = True
         self._global_disable_key: str | None = None
         self._global_disable_callback = None
         self._on_toggle_callbacks: list[callable] = []
         self._main_hwnd = main_window_hwnd
         self._hook_thread: threading.Thread | None = None
-        self._lock = threading.Lock()
+        self._mouse_listener: mouse.Listener | None = None
+        self._lock = threading.RLock()
         self._pressed_hotkeys: set[str] = set()
         self._global_disable_key_pressed = False
+        self._hooked_hotkeys: set[str] = set()
+        self._listening = False
 
-    # ── 注册 / 注销 ──────────────────────────────────────────────────
-
-    def register(self, hotkey: str, callback,
-                 mode: TriggerMode = TriggerMode.DOWN,
-                 stop_callback=None, stop_on_release: bool = True) -> None:
-        """注册一个热键绑定。
-
-        Args:
-            hotkey: keyboard 库识别的键名（如 "f9", "ctrl+shift+a"）
-            callback: 热键触发时的回调（无参数）
-            mode: SWITCH 或 DOWN
-            stop_callback: 停止回调（SWITCH 和 DOWN 模式需要）
-            stop_on_release: DOWN 模式下松开热键是否请求停止。
-                阶段 2 的 count=0 为 True，有限次数为 False。
-        """
+    def register(
+        self, hotkey: str, callback, mode: TriggerMode = TriggerMode.DOWN,
+        stop_callback=None, stop_on_release: bool = True, *, binding_id: str | None = None,
+    ) -> str:
+        """注册一个宏；相同 hotkey 不互相覆盖，返回绑定 ID。"""
+        hotkey = hotkey.lower()
+        binding_id = binding_id or hotkey
+        self.unregister(binding_id)
+        binding = HotkeyBinding(
+            binding_id, hotkey, mode, callback, stop_callback, stop_on_release
+        )
         with self._lock:
-            self._bindings[hotkey] = HotkeyBinding(
-                hotkey, mode, callback, stop_callback, stop_on_release
+            self._bindings_by_id[binding_id] = binding
+            self._bindings_by_hotkey.setdefault(hotkey, {})[binding_id] = binding
+            hook_now = (
+                self._listening
+                and hotkey not in MOUSE_HOTKEYS
+                and hotkey not in self._hooked_hotkeys
             )
+        if hook_now:
+            self._hook_key_once(hotkey)
+        return binding_id
 
-    def unregister(self, hotkey: str) -> bool:
-        """注销一个热键绑定。返回是否成功。"""
+    def unregister(self, binding_id: str) -> bool:
+        """注销一个宏绑定；若其正在执行，会先请求安全停止。"""
+        stop_callback = None
         with self._lock:
-            return self._bindings.pop(hotkey, None) is not None
+            binding = self._bindings_by_id.pop(binding_id, None)
+            if binding is None:
+                return False
+            bindings = self._bindings_by_hotkey.get(binding.hotkey)
+            if bindings is not None:
+                bindings.pop(binding_id, None)
+                if not bindings:
+                    self._bindings_by_hotkey.pop(binding.hotkey, None)
+            if binding.is_running:
+                binding.is_running = False
+                stop_callback = binding.stop_callback
+        if stop_callback is not None:
+            stop_callback()
+        return True
 
-    def mark_finished(self, hotkey: str) -> None:
-        """通知管理器绑定的有限序列已自然结束。"""
+    def mark_finished(self, binding_id: str) -> None:
+        """宏自然结束后释放该宏自己的触发状态。"""
         with self._lock:
-            binding = self._bindings.get(hotkey)
+            binding = self._bindings_by_id.get(binding_id)
             if binding is not None:
                 binding.is_running = False
 
     def update_binding_configuration(
-        self, hotkey: str, mode: TriggerMode, stop_on_release: bool
+        self, binding_id: str, mode: TriggerMode, stop_on_release: bool
     ) -> bool:
-        """更新下一次/当前触发的模式与松开停止规则，不重注册热键。"""
         with self._lock:
-            binding = self._bindings.get(hotkey)
+            binding = self._bindings_by_id.get(binding_id)
             if binding is None:
                 return False
             binding.mode = mode
             binding.stop_on_release = stop_on_release
             return True
 
-    # ── 生命周期 ─────────────────────────────────────────────────────
-
     def start(self) -> None:
-        """启动后台键盘监听线程。"""
-        if self._hook_thread is not None and self._hook_thread.is_alive():
-            return
-        self._hook_thread = threading.Thread(
-            target=self._listen_loop, daemon=True, name="hotkey-hook"
-        )
-        self._hook_thread.start()
+        if self._hook_thread is None or not self._hook_thread.is_alive():
+            self._hook_thread = threading.Thread(
+                target=self._listen_loop, daemon=True, name="hotkey-hook"
+            )
+            self._hook_thread.start()
+        if self._mouse_listener is None:
+            self._mouse_listener = mouse.Listener(on_click=self._on_mouse_click)
+            self._mouse_listener.start()
 
     def stop(self) -> None:
-        """停止后台监听。"""
-        # keyboard 库通过 unhook 清理，线程会在 unhook_all 后自然退出
         keyboard.unhook_all()
+        listener = self._mouse_listener
+        self._mouse_listener = None
+        if listener is not None:
+            listener.stop()
+            listener.join(timeout=1.0)
         if self._hook_thread:
             self._hook_thread.join(timeout=1.0)
 
-    # ── 全局禁用 ─────────────────────────────────────────────────────
-
     def set_global_disable_key(self, key: str) -> None:
-        """设置全局禁用热键。"""
-        self._global_disable_key = key
+        self._global_disable_key = key.lower()
 
     @property
     def global_disabled(self) -> bool:
@@ -143,132 +154,127 @@ class HotkeyManager:
         self._global_disabled = value
 
     def toggle_global_disabled(self) -> bool:
-        """切换全局禁用状态。返回新状态。"""
         stop_callbacks = []
         with self._lock:
             self._global_disabled = not self._global_disabled
             disabled = self._global_disabled
             if disabled:
-                for binding in self._bindings.values():
+                for binding in self._bindings_by_id.values():
                     if binding.is_running:
                         binding.is_running = False
                         if binding.stop_callback:
                             stop_callbacks.append(binding.stop_callback)
             callbacks = list(self._on_toggle_callbacks)
-
         for callback in stop_callbacks:
             callback()
-        for cb in callbacks:
+        for callback in callbacks:
             try:
-                cb(disabled)
+                callback(disabled)
             except Exception:
                 pass
         return disabled
 
     def on_toggle(self, callback: callable) -> None:
-        """注册全局禁用状态切换时的通知回调。
-        
-        Args:
-            callback: 接收一个 bool 参数（True=禁用, False=启用）
-        """
         self._on_toggle_callbacks.append(callback)
 
-    # ── 焦点检测 ─────────────────────────────────────────────────────
-
     def set_window_hwnd(self, hwnd: int) -> None:
-        """更新主窗口句柄（窗口创建后调用）。"""
         self._main_hwnd = hwnd
 
     def is_mouse_over_window(self) -> bool:
-        """检测鼠标是否在程序窗口内。
-
-        使用 Win32 API：GetCursorPos + GetWindowRect。
-        窗口最小化时 GetWindowRect 可能返回不可靠值，但根据已确认决策，
-        最小化时照常允许热键触发（此处不检测最小化状态）。
-        """
         if self._main_hwnd == 0:
             return False
         pt = wintypes.POINT()
         ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
         rect = wintypes.RECT()
         if not ctypes.windll.user32.GetWindowRect(self._main_hwnd, ctypes.byref(rect)):
-            return False  # 获取窗口矩形失败，保守返回 False（不抑制）
+            return False
         return rect.left <= pt.x <= rect.right and rect.top <= pt.y <= rect.bottom
 
-    # ── 内部 ─────────────────────────────────────────────────────────
-
     def _listen_loop(self) -> None:
-        """后台键盘监听循环。"""
-        # 注册全局禁用键切换
-        if self._global_disable_key:
-            keyboard.hook_key(
-                self._global_disable_key, self._on_global_disable_event
-            )
-        # 为所有绑定注册钩子
-        for hotkey in self._bindings:
-            keyboard.hook_key(hotkey, self._make_handler(hotkey))
-        # 阻塞等待（keyboard 库内部事件循环）
+        with self._lock:
+            self._listening = True
+            hotkeys = [key for key in self._bindings_by_hotkey if key not in MOUSE_HOTKEYS]
+            global_key = self._global_disable_key
+        if global_key:
+            keyboard.hook_key(global_key, self._on_global_disable_event)
+        for hotkey in hotkeys:
+            self._hook_key_once(hotkey)
         try:
             keyboard.wait()
         except Exception:
             pass
 
-    def _make_handler(self, hotkey: str):
-        """为每个热键创建按下/释放状态去重后的处理函数。"""
-
-        def handler(event):
-            is_pressed = event.event_type == "down"
-            with self._lock:
-                binding = self._bindings.get(hotkey)
-                if binding is None:
-                    return
-
-                # keyboard 会在长按时重复报告 down；只接受物理按下和释放边沿。
-                if is_pressed:
-                    if hotkey in self._pressed_hotkeys:
-                        return
-                    self._pressed_hotkeys.add(hotkey)
-                else:
-                    if hotkey not in self._pressed_hotkeys:
-                        return
-                    self._pressed_hotkeys.remove(hotkey)
-
-            # 禁用状态仍须接受释放事件，确保已运行的 DOWN 脚本能结束。
-            if is_pressed and self._global_disabled:
+    def _hook_key_once(self, hotkey: str) -> None:
+        with self._lock:
+            if hotkey in self._hooked_hotkeys:
                 return
-            if is_pressed and self.is_mouse_over_window():
-                return  # 鼠标在窗口内，抑制触发
+            self._hooked_hotkeys.add(hotkey)
+        keyboard.hook_key(hotkey, self._make_handler(hotkey))
 
-            mode = binding.mode
-            if mode == TriggerMode.SWITCH:
-                if not is_pressed:
-                    return
-                with self._lock:
-                    binding.is_running = not binding.is_running
-                    is_running = binding.is_running
-                if is_running:
-                    binding.callback()
-                elif binding.stop_callback:
-                    binding.stop_callback()
-            elif mode == TriggerMode.DOWN:
-                if is_pressed:
-                    with self._lock:
-                        if binding.is_running:
-                            return
-                        binding.is_running = True
-                    binding.callback()
-                    return
-                with self._lock:
-                    if not binding.is_running:
-                        return
-                    binding.is_running = False
-                if binding.stop_on_release and binding.stop_callback:
-                    binding.stop_callback()
-
+    def _make_handler(self, hotkey: str):
+        def handler(event):
+            self._handle_event(hotkey, event.event_type == "down")
         return handler
 
+    def _on_mouse_click(self, _x, _y, button, pressed) -> None:
+        mapping = {
+            mouse.Button.left: "mouse_left",
+            mouse.Button.right: "mouse_right",
+            mouse.Button.middle: "mouse_middle",
+            getattr(mouse.Button, "x1", None): "mouse_back",
+            getattr(mouse.Button, "x2", None): "mouse_forward",
+        }
+        hotkey = mapping.get(button)
+        if hotkey is not None:
+            self._handle_event(hotkey, pressed)
+
+
+    def _handle_event(self, hotkey: str, is_pressed: bool) -> None:
+        with self._lock:
+            bindings = list(self._bindings_by_hotkey.get(hotkey, {}).values())
+            if not bindings:
+                return
+            if is_pressed:
+                if hotkey in self._pressed_hotkeys:
+                    return
+                self._pressed_hotkeys.add(hotkey)
+            else:
+                if hotkey not in self._pressed_hotkeys:
+                    return
+                self._pressed_hotkeys.remove(hotkey)
+            disabled = self._global_disabled
+        if is_pressed and (disabled or self.is_mouse_over_window()):
+            return
+        callbacks = []
+        stop_callbacks = []
+        with self._lock:
+            for binding in bindings:
+                if self._bindings_by_id.get(binding.binding_id) is not binding:
+                    continue
+                if binding.mode == TriggerMode.SWITCH:
+                    if not is_pressed:
+                        continue
+                    if binding.is_running:
+                        binding.is_running = False
+                        if binding.stop_callback:
+                            stop_callbacks.append(binding.stop_callback)
+                    else:
+                        binding.is_running = True
+                        callbacks.append(binding.callback)
+                elif is_pressed:
+                    if not binding.is_running:
+                        binding.is_running = True
+                        callbacks.append(binding.callback)
+                elif binding.is_running and binding.stop_on_release:
+                    binding.is_running = False
+                    if binding.stop_callback:
+                        stop_callbacks.append(binding.stop_callback)
+        for callback in callbacks:
+            callback()
+        for callback in stop_callbacks:
+            callback()
+
     def _on_global_disable_event(self, event) -> None:
-        """仅在 F12 的物理按下边沿切换，避免长按连续切换状态。"""
         if event.event_type == "up":
             with self._lock:
                 self._global_disable_key_pressed = False

@@ -86,7 +86,7 @@ class ScriptEngineTests(unittest.TestCase):
             path = self.write(directory, script(mode="up"))
             with self.assertRaises(PythonMacroValidationError):
                 load_python_macro(path)
-            path = self.write(directory, script().replace('HOTKEY = "f9"', 'HOTKEY = "f10"'))
+            path = self.write(directory, script().replace('HOTKEY = "f9"', 'HOTKEY = "f12"'))
             with self.assertRaises(PythonMacroValidationError):
                 load_python_macro(path)
 
@@ -113,7 +113,7 @@ class ScriptEngineTests(unittest.TestCase):
 
     @staticmethod
     def _macro(run):
-        return PythonMacro("test", "f9", "switch", 1, 1.0, run)
+        return PythonMacro("test", "f9", "switch", 1, 1.0, True, run)
 
     @staticmethod
     def _tracking_player(events):

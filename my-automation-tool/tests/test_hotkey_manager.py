@@ -44,5 +44,22 @@ class HotkeyManagerTests(unittest.TestCase):
         self.assertEqual(started, ["start"])
         self.assertEqual(stopped, ["stop"])
 
+    def test_second_hotkey_can_start_while_first_execution_is_active(self):
+        started = []
+        manager = HotkeyManager()
+        manager.global_disabled = False
+        manager.is_mouse_over_window = lambda: False
+        manager.register("f1", lambda: started.append("f1"), TriggerMode.DOWN)
+        manager.register("f3", lambda: started.append("f3"), TriggerMode.DOWN)
+        first = manager._make_handler("f1")
+        second = manager._make_handler("f3")
+        first(self.event("down"))
+        second(self.event("down"))
+        second(self.event("up"))
+        self.assertEqual(started, ["f1", "f3"])
+        manager.mark_finished("f1")
+        second(self.event("down"))
+        self.assertEqual(started, ["f1", "f3", "f3"])
+
 if __name__ == "__main__":
     unittest.main()
