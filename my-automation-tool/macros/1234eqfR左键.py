@@ -5,7 +5,7 @@ HOTKEY = 'mouse_back'
 MODE = 'down'
 COUNT = 0
 SPEED = 1.0
-ENABLED = True
+ENABLED = False
 
 
 def _点击(player, key):

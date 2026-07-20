@@ -1,11 +1,11 @@
 """由“12eqr左键-今汐.json”只读等价转换。"""
 
 NAME = "12eqr左键-今汐"
-HOTKEY = "mouse_back"
-MODE = "down"
+HOTKEY = 'mouse_back'
+MODE = 'down'
 COUNT = 0
 SPEED = 1.0
-ENABLED = False
+ENABLED = True
 
 
 def _点击(player, key):
