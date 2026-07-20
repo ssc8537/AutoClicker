@@ -1,8 +1,9 @@
 NAME = "goodbye"
-HOTKEY = "f9"
-MODE = "down"
+HOTKEY = 'mouse_back'
+MODE = 'down'
 COUNT = 0
 SPEED = 1.0
+ENABLED = False
 
 
 def run(player):

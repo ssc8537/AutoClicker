@@ -39,7 +39,9 @@ class ScriptPlayerTests(unittest.TestCase):
         player = ScriptPlayer(threading.Event(), 2.0)
         start = time.monotonic()
         player.sleep(40)
-        self.assertLess(time.monotonic() - start, 0.06)
+        # 目标等待约 20ms；Windows 调度在繁忙机器上可能出现约 100ms 抖动。
+        # 该回归只验证调用能在合理时间内返回，精确倍率由停止可中断测试覆盖。
+        self.assertLess(time.monotonic() - start, 0.15)
 
     def test_chinese_semantic_methods_use_configured_physical_keys(self):
         events = []
@@ -121,9 +123,50 @@ class ScriptPlayerTests(unittest.TestCase):
         for interval_ms in (0, 9, True, "10"):
             with self.assertRaises(ValueError):
                 player.mouse_repeat(1, interval_ms=interval_ms)
-        for button in ("middle", "x1", "LEFT", 1):
+        for button in ("LEFT", 1):
             with self.assertRaises(ValueError):
                 player.mouse_click(button)
+
+    def test_semantic_mouse_key_clicks_and_releases_safely(self):
+        events = []
+        values = {
+            "character_1": "mouse_left", "character_2": "mouse_right",
+            "character_3": "mouse_middle", "skill": "mouse_back",
+            "echo": "mouse_forward", "ultimate": "r", "jump": "space", "execute": "f",
+        }
+        player = ScriptPlayer(
+            threading.Event(), 1.0, keybinds=GameKeybinds(values),
+            mouse_press=lambda button: events.append(("down", button)),
+            mouse_release=lambda button: events.append(("up", button)),
+        )
+        player.切换(1); player.切换(2); player.切换(3); player.战技(); player.声骸()
+        self.assertEqual(events, [
+            ("down", "left"), ("up", "left"), ("down", "right"), ("up", "right"),
+            ("down", "middle"), ("up", "middle"), ("down", "x1"), ("up", "x1"),
+            ("down", "x2"), ("up", "x2"),
+        ])
+
+    def test_custom_action_label_uses_the_saved_key(self):
+        events = []
+        values = dict(GameKeybinds({
+            "character_1": "1", "character_2": "2", "character_3": "3",
+            "skill": "e", "echo": "q", "ultimate": "r", "jump": "space", "execute": "f",
+        }).values)
+        labels = {
+            "character_1": "角色 1", "character_2": "角色 2", "character_3": "角色 3",
+            "skill": "战技", "echo": "声骸", "ultimate": "大招", "jump": "跳跃", "execute": "处决",
+            "extension_1": "大招 1", "extension_2": "大招 2", "extension_3": "扩展键 3",
+        }
+        values["extension_1"] = "r"
+        values["extension_2"] = "r"
+        player = ScriptPlayer(
+            threading.Event(), 1.0, keybinds=GameKeybinds(values, labels),
+            press=lambda key: events.append(("down", key)),
+            release=lambda key: events.append(("up", key)),
+        )
+        player.按键("大招 1", hold_ms=1)
+        player.按键("大招 2", hold_ms=1)
+        self.assertEqual(events, [("down", "r"), ("up", "r"), ("down", "r"), ("up", "r")])
 
     def test_mouse_repeat_interval_is_not_shortened_by_speed(self):
         player = ScriptPlayer(

@@ -2,12 +2,18 @@
 from __future__ import annotations
 
 import ctypes
+import queue
 import threading
 from ctypes import wintypes
 from enum import IntEnum
 
-import keyboard
-from pynput import mouse
+from pynput import keyboard, mouse
+
+from src.core.input_keys import MOUSE_HOTKEYS, input_key_from_windows_vk, normalise_input_key
+from src.core.input_simulator import INPUT_EVENT_MARKER
+from src.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class TriggerMode(IntEnum):
@@ -17,22 +23,18 @@ class TriggerMode(IntEnum):
     DOWN = 1
 
 
-MOUSE_HOTKEYS = frozenset({
-    "mouse_left", "mouse_right", "mouse_middle", "mouse_back", "mouse_forward",
-})
-
-
 class HotkeyBinding:
     """一个宏的触发配置。相同热键允许有多个绑定。"""
 
     __slots__ = (
         "binding_id", "hotkey", "mode", "callback", "stop_callback",
-        "stop_on_release", "is_running",
+        "stop_on_release", "is_running", "generation",
     )
 
     def __init__(
         self, binding_id: str, hotkey: str, mode: TriggerMode,
         callback, stop_callback=None, stop_on_release: bool = True,
+        generation: int = 0,
     ):
         self.binding_id = binding_id
         self.hotkey = hotkey
@@ -41,6 +43,7 @@ class HotkeyBinding:
         self.stop_callback = stop_callback
         self.stop_on_release = stop_on_release
         self.is_running = False
+        self.generation = generation
 
 
 class HotkeyManager:
@@ -49,17 +52,24 @@ class HotkeyManager:
     def __init__(self, main_window_hwnd: int = 0):
         self._bindings_by_id: dict[str, HotkeyBinding] = {}
         self._bindings_by_hotkey: dict[str, dict[str, HotkeyBinding]] = {}
+        # binding 被禁用、改键或重建后也不能把代次重置为 0。调度器会用代次
+        # 拒绝“松开后才到达”的旧启动；代次倒退会把新启动误判成旧事件。
+        self._generation_floor_by_id: dict[str, int] = {}
         self._global_disabled = True
         self._global_disable_key: str | None = None
         self._global_disable_callback = None
         self._on_toggle_callbacks: list[callable] = []
         self._main_hwnd = main_window_hwnd
-        self._hook_thread: threading.Thread | None = None
+        self._keyboard_listener: keyboard.Listener | None = None
         self._mouse_listener: mouse.Listener | None = None
+        self._event_thread: threading.Thread | None = None
+        self._event_queue: queue.Queue[tuple[str, bool, int] | None] = queue.Queue(maxsize=512)
+        self._queue_overflow_logged = False
+        self._config_epoch = 0
         self._lock = threading.RLock()
         self._pressed_hotkeys: set[str] = set()
+        self._queued_physical_state: dict[str, bool] = {}
         self._global_disable_key_pressed = False
-        self._hooked_hotkeys: set[str] = set()
         self._listening = False
 
     def register(
@@ -67,22 +77,21 @@ class HotkeyManager:
         stop_callback=None, stop_on_release: bool = True, *, binding_id: str | None = None,
     ) -> str:
         """注册一个宏；相同 hotkey 不互相覆盖，返回绑定 ID。"""
-        hotkey = hotkey.lower()
+        hotkey = normalise_input_key(hotkey)
         binding_id = binding_id or hotkey
         self.unregister(binding_id)
-        binding = HotkeyBinding(
-            binding_id, hotkey, mode, callback, stop_callback, stop_on_release
-        )
         with self._lock:
+            binding = HotkeyBinding(
+                binding_id,
+                hotkey,
+                mode,
+                callback,
+                stop_callback,
+                stop_on_release,
+                self._generation_floor_by_id.get(binding_id, 0),
+            )
             self._bindings_by_id[binding_id] = binding
             self._bindings_by_hotkey.setdefault(hotkey, {})[binding_id] = binding
-            hook_now = (
-                self._listening
-                and hotkey not in MOUSE_HOTKEYS
-                and hotkey not in self._hooked_hotkeys
-            )
-        if hook_now:
-            self._hook_key_once(hotkey)
         return binding_id
 
     def unregister(self, binding_id: str) -> bool:
@@ -99,16 +108,24 @@ class HotkeyManager:
                     self._bindings_by_hotkey.pop(binding.hotkey, None)
             if binding.is_running:
                 binding.is_running = False
+                generation = self._advance_generation_locked(binding)
                 stop_callback = binding.stop_callback
+            else:
+                generation = binding.generation
+                self._generation_floor_by_id[binding_id] = max(
+                    generation, self._generation_floor_by_id.get(binding_id, 0)
+                )
         if stop_callback is not None:
-            stop_callback()
+            stop_callback(generation)
         return True
 
-    def mark_finished(self, binding_id: str) -> None:
-        """宏自然结束后释放该宏自己的触发状态。"""
+    def mark_finished(self, binding_id: str, generation: int | None = None) -> None:
+        """只允许完成回调结束自己那一代运行，旧回调不得覆盖新运行。"""
         with self._lock:
             binding = self._bindings_by_id.get(binding_id)
-            if binding is not None:
+            if binding is not None and (
+                generation is None or binding.generation == generation
+            ):
                 binding.is_running = False
 
     def update_binding_configuration(
@@ -122,28 +139,93 @@ class HotkeyManager:
             binding.stop_on_release = stop_on_release
             return True
 
+    def _advance_generation_locked(self, binding: HotkeyBinding) -> int:
+        """锁内递增并保存绑定代次；跨注销/重新启用保持单调。"""
+        binding.generation += 1
+        self._generation_floor_by_id[binding.binding_id] = max(
+            binding.generation,
+            self._generation_floor_by_id.get(binding.binding_id, 0),
+        )
+        return binding.generation
+
+    def clear_pending_events(self) -> int:
+        """配置即时刷新时丢弃旧边沿与按住状态，避免历史队列延迟新绑定。"""
+        with self._lock:
+            self._pressed_hotkeys.clear()
+            self._queued_physical_state.clear()
+            self._global_disable_key_pressed = False
+            self._queue_overflow_logged = False
+            self._config_epoch += 1
+        removed = 0
+        while True:
+            try:
+                event = self._event_queue.get_nowait()
+            except queue.Empty:
+                break
+            if event is None:
+                self._event_queue.put_nowait(None)
+                break
+            removed += 1
+        return removed
+
     def start(self) -> None:
-        if self._hook_thread is None or not self._hook_thread.is_alive():
-            self._hook_thread = threading.Thread(
-                target=self._listen_loop, daemon=True, name="hotkey-hook"
-            )
-            self._hook_thread.start()
+        with self._lock:
+            if self._listening:
+                return
+            self._listening = True
+        self._event_thread = threading.Thread(
+            target=self._event_loop, daemon=True, name="hotkey-events"
+        )
+        self._event_thread.start()
+        self._keyboard_listener = keyboard.Listener(
+            # Windows 必须走原始 KBDLLHOOKSTRUCT.vkCode。若先由 pynput
+            # 翻译为字符，中文 IME 会把物理键变成 PROCESSKEY/输入法字符。
+            on_press=lambda *_args: None,
+            on_release=lambda *_args: None,
+            win32_event_filter=self._on_windows_keyboard_event,
+        )
+        self._keyboard_listener.start()
+        self._keyboard_listener.wait()
         if self._mouse_listener is None:
-            self._mouse_listener = mouse.Listener(on_click=self._on_mouse_click)
+            # 和键盘一样直接读取 Windows 低级 hook 数据；不依赖高层按钮翻译，
+            # 只过滤本程序自己的 dwExtraInfo 标记。
+            self._mouse_listener = mouse.Listener(
+                on_click=lambda *_args: None,
+                win32_event_filter=self._on_windows_mouse_event,
+            )
             self._mouse_listener.start()
+            self._mouse_listener.wait()
 
     def stop(self) -> None:
-        keyboard.unhook_all()
+        with self._lock:
+            self._listening = False
+            self._pressed_hotkeys.clear()
+            self._queued_physical_state.clear()
+            self._global_disable_key_pressed = False
+        keyboard_listener = self._keyboard_listener
+        self._keyboard_listener = None
+        if keyboard_listener is not None:
+            keyboard_listener.stop()
+            keyboard_listener.join(timeout=1.0)
         listener = self._mouse_listener
         self._mouse_listener = None
         if listener is not None:
             listener.stop()
             listener.join(timeout=1.0)
-        if self._hook_thread:
-            self._hook_thread.join(timeout=1.0)
+        self._event_queue.put(None)
+        if self._event_thread:
+            self._event_thread.join(timeout=1.0)
+        self._event_thread = None
 
     def set_global_disable_key(self, key: str) -> None:
-        self._global_disable_key = key.lower()
+        canonical = normalise_input_key(key)
+        with self._lock:
+            self._global_disable_key = canonical
+            self._global_disable_key_pressed = False
+
+    @property
+    def global_disable_key(self) -> str | None:
+        return self._global_disable_key
 
     @property
     def global_disabled(self) -> bool:
@@ -162,11 +244,12 @@ class HotkeyManager:
                 for binding in self._bindings_by_id.values():
                     if binding.is_running:
                         binding.is_running = False
+                        generation = self._advance_generation_locked(binding)
                         if binding.stop_callback:
-                            stop_callbacks.append(binding.stop_callback)
+                            stop_callbacks.append((binding.stop_callback, generation))
             callbacks = list(self._on_toggle_callbacks)
-        for callback in stop_callbacks:
-            callback()
+        for callback, generation in stop_callbacks:
+            callback(generation)
         for callback in callbacks:
             try:
                 callback(disabled)
@@ -190,33 +273,114 @@ class HotkeyManager:
             return False
         return rect.left <= pt.x <= rect.right and rect.top <= pt.y <= rect.bottom
 
-    def _listen_loop(self) -> None:
-        with self._lock:
-            self._listening = True
-            hotkeys = [key for key in self._bindings_by_hotkey if key not in MOUSE_HOTKEYS]
-            global_key = self._global_disable_key
-        if global_key:
-            keyboard.hook_key(global_key, self._on_global_disable_event)
-        for hotkey in hotkeys:
-            self._hook_key_once(hotkey)
-        try:
-            keyboard.wait()
-        except Exception:
-            pass
-
-    def _hook_key_once(self, hotkey: str) -> None:
-        with self._lock:
-            if hotkey in self._hooked_hotkeys:
-                return
-            self._hooked_hotkeys.add(hotkey)
-        keyboard.hook_key(hotkey, self._make_handler(hotkey))
-
     def _make_handler(self, hotkey: str):
         def handler(event):
             self._handle_event(hotkey, event.event_type == "down")
         return handler
 
-    def _on_mouse_click(self, _x, _y, button, pressed) -> None:
+    def _event_loop(self) -> None:
+        """串行处理真实物理边沿，保证 down/up 顺序不会被不同钩子线程打乱。"""
+        while True:
+            event = self._event_queue.get()
+            if event is None:
+                return
+            with self._lock:
+                listening = self._listening
+            if not listening:
+                continue
+            hotkey, pressed, epoch = event
+            with self._lock:
+                current_epoch = self._config_epoch
+            if epoch != current_epoch:
+                continue
+            self._dispatch_physical_event(hotkey, pressed)
+
+    def _queue_physical_event(self, hotkey: str, pressed: bool) -> None:
+        with self._lock:
+            listening = self._listening
+            if listening and self._queued_physical_state.get(hotkey) is pressed:
+                return
+            if listening:
+                self._queued_physical_state[hotkey] = pressed
+            epoch = self._config_epoch
+        if listening:
+            try:
+                self._event_queue.put_nowait((hotkey, pressed, epoch))
+            except queue.Full:
+                if not self._queue_overflow_logged:
+                    self._queue_overflow_logged = True
+                    # hook 回调不可阻塞；溢出只记一次并依赖下一次配置/松开复位。
+                    logger.warning("物理按键队列已满，已丢弃过期事件")
+
+    @staticmethod
+    def _keyboard_vk(key) -> int | None:
+        vk = getattr(key, "vk", None)
+        if vk is None:
+            vk = getattr(getattr(key, "value", None), "vk", None)
+        return int(vk) if vk is not None else None
+
+    def _on_keyboard_press(self, key, injected: bool = False) -> None:
+        self._on_keyboard_edge(key, True, injected)
+
+    def _on_keyboard_release(self, key, injected: bool = False) -> None:
+        self._on_keyboard_edge(key, False, injected)
+
+    def _on_keyboard_edge(self, key, pressed: bool, injected: bool) -> None:
+        if injected:
+            return
+        vk = self._keyboard_vk(key)
+        hotkey = input_key_from_windows_vk(vk) if vk is not None else None
+        if hotkey is not None:
+            self._queue_physical_event(hotkey, pressed)
+
+    def _on_windows_keyboard_event(self, message: int, data) -> bool:
+        """读取原始 Windows VK/down-up；不受中英文输入法字符翻译影响。"""
+        if self._windows_extra_info(data) == INPUT_EVENT_MARKER:
+            return True
+        pressed_by_message = {
+            0x0100: True,   # WM_KEYDOWN
+            0x0104: True,   # WM_SYSKEYDOWN
+            0x0101: False,  # WM_KEYUP
+            0x0105: False,  # WM_SYSKEYUP
+        }
+        pressed = pressed_by_message.get(int(message))
+        if pressed is None:
+            return True
+        hotkey = input_key_from_windows_vk(int(getattr(data, "vkCode", -1)))
+        if hotkey is not None:
+            self._queue_physical_event(hotkey, pressed)
+        return True
+
+    def _on_windows_mouse_event(self, message: int, data) -> bool:
+        """读取原始 Windows 鼠标 down/up；只排除本程序自身 SendInput。"""
+        if self._windows_extra_info(data) == INPUT_EVENT_MARKER:
+            return True
+        edges = {
+            0x0201: ("mouse_left", True),
+            0x0202: ("mouse_left", False),
+            0x0204: ("mouse_right", True),
+            0x0205: ("mouse_right", False),
+            0x0207: ("mouse_middle", True),
+            0x0208: ("mouse_middle", False),
+        }
+        edge = edges.get(int(message))
+        if int(message) in {0x020B, 0x020C}:  # WM_XBUTTONDOWN / WM_XBUTTONUP
+            button = (int(getattr(data, "mouseData", 0)) >> 16) & 0xFFFF
+            hotkey = {1: "mouse_back", 2: "mouse_forward"}.get(button)
+            edge = (hotkey, int(message) == 0x020B) if hotkey is not None else None
+        if edge is not None:
+            self._queue_physical_event(*edge)
+        return True
+
+    @staticmethod
+    def _windows_extra_info(data) -> int:
+        """pynput 将空 ULONG_PTR 暴露为 None；物理输入应按 0 处理。"""
+        value = getattr(data, "dwExtraInfo", 0)
+        return int(value) if value is not None else 0
+
+    def _on_mouse_click(self, _x, _y, button, pressed, injected: bool = False) -> None:
+        if injected:
+            return
         mapping = {
             mouse.Button.left: "mouse_left",
             mouse.Button.right: "mouse_right",
@@ -226,7 +390,13 @@ class HotkeyManager:
         }
         hotkey = mapping.get(button)
         if hotkey is not None:
-            self._handle_event(hotkey, pressed)
+            self._queue_physical_event(hotkey, pressed)
+
+    def _dispatch_physical_event(self, hotkey: str, pressed: bool) -> None:
+        if hotkey == self._global_disable_key:
+            self._on_global_disable_pressed(pressed)
+            return
+        self._handle_event(hotkey, pressed)
 
 
     def _handle_event(self, hotkey: str, is_pressed: bool) -> None:
@@ -239,14 +409,14 @@ class HotkeyManager:
                     return
                 self._pressed_hotkeys.add(hotkey)
             else:
-                if hotkey not in self._pressed_hotkeys:
-                    return
-                self._pressed_hotkeys.remove(hotkey)
+                # release 是恢复安全状态的幂等命令。配置刷新或队列切代可能已经
+                # 清除了 press 账本，仍必须把真实松开交给按下模式停止。
+                self._pressed_hotkeys.discard(hotkey)
             disabled = self._global_disabled
         if is_pressed and (disabled or self.is_mouse_over_window()):
             return
-        callbacks = []
-        stop_callbacks = []
+        callbacks: list[tuple[callable, int]] = []
+        stop_callbacks: list[tuple[callable, int]] = []
         with self._lock:
             for binding in bindings:
                 if self._bindings_by_id.get(binding.binding_id) is not binding:
@@ -256,30 +426,34 @@ class HotkeyManager:
                         continue
                     if binding.is_running:
                         binding.is_running = False
+                        generation = self._advance_generation_locked(binding)
                         if binding.stop_callback:
-                            stop_callbacks.append(binding.stop_callback)
+                            stop_callbacks.append((binding.stop_callback, generation))
                     else:
                         binding.is_running = True
-                        callbacks.append(binding.callback)
+                        callbacks.append((binding.callback, self._advance_generation_locked(binding)))
                 elif is_pressed:
                     if not binding.is_running:
                         binding.is_running = True
-                        callbacks.append(binding.callback)
-                elif binding.is_running and binding.stop_on_release:
+                        callbacks.append((binding.callback, self._advance_generation_locked(binding)))
+                elif binding.stop_on_release:
+                    # release 是幂等停止命令，不能依赖可能被旧完成回调污染的状态。
                     binding.is_running = False
+                    generation = self._advance_generation_locked(binding)
                     if binding.stop_callback:
-                        stop_callbacks.append(binding.stop_callback)
-        for callback in callbacks:
-            callback()
-        for callback in stop_callbacks:
-            callback()
+                        stop_callbacks.append((binding.stop_callback, generation))
+        for callback, generation in callbacks:
+            callback(generation)
+        for callback, generation in stop_callbacks:
+            callback(generation)
 
     def _on_global_disable_event(self, event) -> None:
-        if event.event_type == "up":
+        self._on_global_disable_pressed(event.event_type == "down")
+
+    def _on_global_disable_pressed(self, is_pressed: bool) -> None:
+        if not is_pressed:
             with self._lock:
                 self._global_disable_key_pressed = False
-            return
-        if event.event_type != "down":
             return
         with self._lock:
             if self._global_disable_key_pressed:

@@ -86,7 +86,7 @@ class ScriptEngineTests(unittest.TestCase):
             path = self.write(directory, script(mode="up"))
             with self.assertRaises(PythonMacroValidationError):
                 load_python_macro(path)
-            path = self.write(directory, script().replace('HOTKEY = "f9"', 'HOTKEY = "f12"'))
+            path = self.write(directory, script().replace('HOTKEY = "f9"', 'HOTKEY = "f25"'))
             with self.assertRaises(PythonMacroValidationError):
                 load_python_macro(path)
 

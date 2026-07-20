@@ -2,8 +2,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from pathlib import Path
 
+from src.core.game_keybinds import (
+    GameKeybindError,
+    KEYBIND_FIELDS,
+    load_game_keybinds,
+)
+from src.core.global_hotkey import GlobalHotkeyError, load_global_hotkey
+from src.core.input_keys import (
+    MOUSE_BUTTON_FOR_HOTKEY,
+    WINDOWS_VK_BY_KEY,
+    display_input_key,
+)
 from src.utils.app_paths import config_root
 
 from PySide6.QtCore import Slot
@@ -49,6 +61,81 @@ def _safe_template_message() -> str:
 
 def _read_utf8(path: Path) -> str:
     return path.read_text(encoding="utf-8")
+
+
+_STABLE_ACTION_CALLS = {
+    "character_1": "player.切换(1)",
+    "character_2": "player.切换(2)",
+    "character_3": "player.切换(3)",
+    "skill": "player.战技()",
+    "echo": "player.声骸()",
+    "ultimate": "player.大招()",
+    "jump": "player.跳跃()",
+    "execute": "player.处决()",
+}
+
+
+def _quoted(value: str) -> str:
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _runtime_reference(config_dir: Path | None = None) -> str:
+    """Build the current key contract from code and saved configuration."""
+    root = (config_dir or _default_config_dir()).resolve()
+    lines = [
+        "九、当前程序设置（每次打开窗口时动态生成）",
+        "",
+    ]
+    try:
+        global_hotkey = load_global_hotkey(root / "global_hotkey.ini")
+        lines.append(
+            "当前全局启停键：内部值 "
+            f"{_quoted(global_hotkey)}；界面显示 {_quoted(display_input_key(global_hotkey))}。"
+            "任何宏 HOTKEY 和快捷连点触发键都不能使用这个键。"
+        )
+    except GlobalHotkeyError as exc:
+        lines.append(f"当前全局启停键无法读取：{exc}。不要猜测，请用户在设置页确认。")
+
+    lines.extend(["", "当前共享动作映射："])
+    try:
+        keybinds = load_game_keybinds(root / "game_keybinds.ini")
+    except GameKeybindError as exc:
+        lines.append(f"当前共享动作配置无法读取：{exc}。不要猜测，请用户在功能页确认。")
+    else:
+        for index, (slot, _default_label, _default_key) in enumerate(KEYBIND_FIELDS, 1):
+            label = keybinds.label_for(slot)
+            key = keybinds.key_for(slot)
+            stable_call = _STABLE_ACTION_CALLS.get(slot)
+            calls = f"{stable_call}；也可写 " if stable_call else "调用 "
+            calls += f"player.按键({_quoted(label)})"
+            lines.append(
+                f"{index}. 槽位 {slot}；当前名称 {_quoted(label)}；"
+                f"物理键内部值 {_quoted(key)}；界面显示 {_quoted(display_input_key(key))}；{calls}。"
+            )
+
+    lines.extend(
+        [
+            "",
+            "十、完整按键字典（由当前源码生成）",
+            "",
+            "键盘键可用于 HOTKEY 和 player.tap；每行依次为内部值、界面显示名、Windows VK：",
+        ]
+    )
+    for key, vk in WINDOWS_VK_BY_KEY.items():
+        lines.append(
+            f"{_quoted(key)} -> {_quoted(display_input_key(key))} -> 0x{vk:02X}"
+        )
+    lines.extend(
+        [
+            "",
+            "鼠标触发键用于 HOTKEY；对应的 player 鼠标 button 名如下：",
+        ]
+    )
+    for hotkey, button in MOUSE_BUTTON_FOR_HOTKEY.items():
+        lines.append(
+            f"{_quoted(hotkey)} -> {_quoted(display_input_key(hotkey))} -> {_quoted(button)}"
+        )
+    return "\n".join(lines)
 
 
 def load_prompt_template(config_dir: Path | None = None) -> PromptTemplateLoad:
@@ -105,15 +192,19 @@ def load_prompt_template(config_dir: Path | None = None) -> PromptTemplateLoad:
 def build_ai_prompt_content(
     source: str | None = None, config_dir: Path | None = None
 ) -> PromptContent:
-    """将本次读取的模板和已保存源码拼接为仅供阅读的文本。"""
+    """Append live key settings and saved source to the editable template."""
     load = load_prompt_template(config_dir)
+    runtime_reference = _runtime_reference(config_dir)
     source_section = (
         "以下是已保存的完整 Python 宏源码。源码中的 Python 注释会原样保留。\n\n"
         + source
         if source is not None
         else "当前没有选中有效宏。请先按下面规则让 AI 返回完整文件，再粘贴到编辑器保存。"
     )
-    text = f"{load.template.rstrip()}\n\n八、已保存的宏源码\n\n{source_section}\n"
+    text = (
+        f"{load.template.rstrip()}\n\n{runtime_reference}\n\n"
+        f"十一、已保存的宏源码\n\n{source_section}\n"
+    )
     return PromptContent(text, load)
 
 

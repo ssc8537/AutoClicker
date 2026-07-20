@@ -4,10 +4,12 @@
 
 ## 当前可用功能
 
-- F12：全局启用/禁用所有脚本；禁用时立即停止当前宏并显示 OSD。
-- F9：运行 `my-automation-tool/scripts/hello_world.py`。
-- 两种模式：`switch` 与 `down`；`COUNT = 0` 时按住 F9 循环、松开停止。
-- 每次 F9 前重新读取已保存的 Python 宏；`tap()` 和 `sleep()` 可被停止请求中断。
+- 宏库可新建、编辑、校验、改名和删除可信本地 Python `run(player)` 宏。
+- 每个宏可自定义一个键盘键或五鼠标键，支持 `switch` 与 `down`、次数、速度和即时启用；同键可并发多个宏。
+- 全局启停键可自定义；F2、F9、F12 均没有固定功能。禁用或退出时会停止脚本并释放输入。
+- 功能页提供一排快捷连点，以及名称和物理键都可修改的共享游戏动作。
+- 设置页可控制 OSD 与提示音；窗口、任务栏、托盘和无黑窗 EXE 使用用户角色图标。
+- “AI 提示词”会动态加入当前共享动作、全局键、全部支持按键和完整脚本 API，供外部 AI 编写连招。
 
 ## 安装与启动
 
@@ -19,7 +21,7 @@ python -m pip install -r requirements.txt
 python main.py
 ```
 
-详细环境说明见 `SETUP_GUIDE.md`。程序启动后，先按 F12 看到绿色“全局脚本已就绪”，再把鼠标移出程序窗口并在记事本测试 F9。
+详细环境说明见 `SETUP_GUIDE.md`。程序启动后，先查看设置页的当前全局启停键，再在宏库启用脚本并在触发页设置它自己的触发键。真实输入只在记事本或安全区域测试。
 
 ## 测试
 
@@ -31,11 +33,10 @@ python -m compileall -q main.py src scripts
 
 人工测试步骤见 `my-automation-tool/docs/USER_TEST_GUIDE.md`。自动测试不会发送真实键盘输入；真实输入仅由你手动启动程序后触发。
 
-## 贡献与团队协作
+## AI 接手与阶段开发
 
-- 主要 Agent 先读取 `.codex/agents/1-project-lead.md`，以“项目负责人”身份统一管理团队。
-- 项目负责人和全部员工永久统一使用 `GPT-5.6 Terra 高 / high`；实际平台分配不一致时必须如实报告。
-- 运行代码前先阅读 `AGENTS.md`、`PROJECT_STRUCTURE.md`、`my-automation-tool/PROJECT_SPEC.md` 与 `docs/handover/CURRENT_HANDOVER.md`。
-- 团队角色配置位于 `.codex/agents/`；小白使用方法见 `my-automation-tool/docs/team/TEAM_USAGE_GUIDE.md`。
-- 两份优秀案例只在本地只读参考，禁止提交或复制源码。
-- 每次功能里程碑必须更新文档、测试记录、交接文档，并先创建可回退 Git 基线。
+- 新 AI 默认只读 `AGENTS.md`、`PROJECT_ROADMAP.md`、`my-automation-tool/docs/handover/CURRENT_HANDOVER.md`，并运行 `git status --short`。
+- `PROJECT_ROADMAP.md` 是唯一阶段计划；每轮完成实现或用户验收后都必须原地更新，禁止新建第二份根路线。
+- 只在开始当前阶段时读取对应的一页需求与验收教程；历史阶段文档只作证据，不是接手入口。
+- 优秀案例仅在需要时只读核对，禁止复制源码、资源、品牌或格式。
+- 用户明确要求发布时才创建 Git 回退版本；默认不提交、不推送。

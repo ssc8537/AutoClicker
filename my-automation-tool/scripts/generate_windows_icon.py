@@ -24,13 +24,18 @@ def main() -> int:
     painter = QPainter(image)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-    # 高对比圆形底：小尺寸下仍先识别到酒红外轮廓与粉发。
+    # 清新的粉、杏橙、薄荷绿底色；大色块保证 16px 托盘仍可辨认。
     painter.setPen(Qt.PenStyle.NoPen)
-    painter.setBrush(_brush_gradient(QColor("#FBE0E4"), QColor("#D58A9E"), 18, 238))
+    painter.setBrush(_brush_gradient(QColor("#E5F5E8"), QColor("#FFF0E4"), 18, 238))
     painter.drawRoundedRect(QRectF(10, 10, 236, 236), 68, 68)
-    painter.setPen(QPen(QColor("#E5A86B"), 8))
+    painter.setPen(QPen(QColor("#EEB477"), 8))
     painter.setBrush(Qt.BrushStyle.NoBrush)
     painter.drawRoundedRect(QRectF(18, 18, 220, 220), 58, 58)
+
+    # 淡绿色肩部让粉发轮廓更清楚。
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor("#A8D8B4"))
+    painter.drawEllipse(QRectF(63, 177, 130, 70))
 
     # 粉发大轮廓。
     hair = QPainterPath()
@@ -39,7 +44,7 @@ def main() -> int:
     hair.cubicTo(203, 51, 223, 119, 202, 194)
     hair.cubicTo(184, 222, 77, 222, 56, 186)
     painter.setPen(Qt.PenStyle.NoPen)
-    painter.setBrush(_brush_gradient(QColor("#F8B4C8"), QColor("#B9597D"), 52, 218))
+    painter.setBrush(_brush_gradient(QColor("#F9BFD0"), QColor("#D77F9F"), 52, 224))
     painter.drawPath(hair)
 
     # 脸部与耳朵：简化五官，避免小图标变糊。
@@ -49,14 +54,14 @@ def main() -> int:
     painter.drawEllipse(QRectF(161, 126, 22, 35))
 
     # 刘海和两侧卷发。
-    painter.setBrush(QColor("#C96991"))
+    painter.setBrush(QColor("#E08CAA"))
     fringe = QPainterPath()
     fringe.moveTo(76, 112)
     fringe.cubicTo(78, 61, 167, 52, 186, 108)
     fringe.cubicTo(167, 90, 149, 93, 136, 113)
     fringe.cubicTo(119, 88, 95, 97, 76, 112)
     painter.drawPath(fringe)
-    painter.setPen(QPen(QColor("#A94D78"), 13, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+    painter.setPen(QPen(QColor("#C5678B"), 13, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
     painter.drawArc(QRectF(48, 92, 72, 122), 85 * 16, 170 * 16)
     painter.drawArc(QRectF(136, 92, 72, 122), -75 * 16, 170 * 16)
 
@@ -71,13 +76,17 @@ def main() -> int:
     painter.setBrush(QColor("#FFE5B5"))
     painter.drawEllipse(QRectF(166, 153, 15, 15))
 
-    # 珍珠发卡：三个大点保持小尺寸可辨认。
-    painter.setPen(QPen(QColor("#F0B36B"), 4))
-    painter.drawLine(QPointF(148, 74), QPointF(183, 91))
+    # 发卡：薄荷绿叶片、杏橙花心和珍珠，三种主色都集中在头像上。
+    painter.setPen(QPen(QColor("#74B78A"), 5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+    painter.drawLine(QPointF(147, 72), QPointF(184, 94))
     painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor("#91CF9E"))
+    painter.drawEllipse(QRectF(146, 68, 22, 12))
+    painter.drawEllipse(QRectF(164, 78, 24, 13))
+    painter.setBrush(QColor("#F2A965"))
+    painter.drawEllipse(QRectF(156, 75, 15, 15))
     painter.setBrush(QColor("#FFF9F4"))
-    for x, y in ((153, 76), (166, 83), (179, 90)):
-        painter.drawEllipse(QRectF(x - 6, y - 6, 12, 12))
+    painter.drawEllipse(QRectF(176, 87, 13, 13))
 
     painter.end()
     if not image.save(str(OUTPUT), "ICO"):

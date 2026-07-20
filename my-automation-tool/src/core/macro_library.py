@@ -5,6 +5,8 @@ import ast
 from dataclasses import dataclass
 from pathlib import Path
 
+from src.core.input_keys import normalise_input_key
+
 
 @dataclass(frozen=True)
 class MacroMetadata:
@@ -103,29 +105,12 @@ def validate_macro_source(source: str, *, filename: str = "<Python 宏>") -> Mac
     return MacroMetadata(name, hotkey, mode, count, float(speed), enabled)
 
 
-MOUSE_TRIGGER_KEYS = frozenset({
-    "mouse_left", "mouse_right", "mouse_middle", "mouse_back", "mouse_forward",
-})
-_KEYBOARD_TRIGGER_ALIASES = {
-    " ": "space",
-    "return": "enter",
-    "esc": "esc",
-}
-
-
 def normalize_macro_hotkey(value: object) -> str:
-    """校验 UI 捕获的单一键盘键或鼠标侧键；F12 永远保留。"""
-    if not isinstance(value, str):
-        raise ValueError("HOTKEY 必须是单个键盘键或鼠标侧键")
-    hotkey = value.strip().lower()
-    hotkey = _KEYBOARD_TRIGGER_ALIASES.get(hotkey, hotkey)
-    if hotkey in MOUSE_TRIGGER_KEYS:
-        return hotkey
-    if hotkey == "f12":
-        raise ValueError("F12 为全局停止键，不能绑定宏")
-    if not hotkey or "+" in hotkey or len(hotkey) > 24:
-        raise ValueError("HOTKEY 必须是单个键盘键或鼠标侧键")
-    return hotkey
+    """校验 UI 捕获的一个标准键盘键或五个鼠标按钮。"""
+    try:
+        return normalise_input_key(value)
+    except ValueError as exc:
+        raise ValueError("HOTKEY 必须是单个标准键盘键或鼠标按钮") from exc
 
 
 def replace_trigger_metadata(

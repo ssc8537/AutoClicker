@@ -1,8 +1,9 @@
 NAME = '新宏6'
-HOTKEY = "f9"
-MODE = "switch"
+HOTKEY = 'f9'
+MODE = 'switch'
 COUNT = 1
 SPEED = 1.0
+ENABLED = False
 
 def run(player):
     player.mouse_down("left")

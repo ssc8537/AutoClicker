@@ -5,7 +5,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication, QLabel, QMainWindow
 
-from src.ui.window_chrome import application_icon, WindowChromeController, WindowTitleBar
+from src.ui.window_chrome import application_icon, tray_icon, WindowChromeController, WindowTitleBar
 
 
 class _TrackingWindow(QMainWindow):
@@ -62,7 +62,11 @@ class WindowChromeTests(unittest.TestCase):
         self.window.show()
         self.assertIsNotNone(chrome.tray)
         self.assertFalse(self.window.windowIcon().isNull())
-        self.assertEqual(chrome.tray.icon().cacheKey(), self.window.windowIcon().cacheKey())
+        self.assertFalse(tray_icon().isNull())
+        self.assertEqual(
+            chrome.tray.icon().pixmap(32, 32).toImage(),
+            tray_icon().pixmap(32, 32).toImage(),
+        )
         self.assertEqual(
             [action.text() for action in chrome.menu.actions()],
             ["显示主窗口", "隐藏主窗口", "退出程序"],

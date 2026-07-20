@@ -12,6 +12,21 @@ def application_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
+def data_root() -> Path:
+    """Return the writable macro/config root, including this checkout's dist build."""
+    root = application_root()
+    if not getattr(sys, "frozen", False):
+        return root
+    # A development build lives in ``project/dist/MyAutoPlayer`` while the
+    # user's long-lived macros and editable prompt remain in ``project``.
+    # A separately copied portable app has no such project root and continues
+    # to keep its data next to the executable.
+    candidate = root.parent.parent
+    if (candidate / "macros").is_dir() or (candidate / "config").is_dir():
+        return candidate
+    return root
+
+
 def resource_root() -> Path:
     """返回只读打包资源目录；源码模式与程序根相同。"""
     if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
@@ -20,12 +35,12 @@ def resource_root() -> Path:
 
 
 def macro_root() -> Path:
-    return application_root() / "macros"
+    return data_root() / "macros"
 
 
 def config_root() -> Path:
-    return application_root() / "config"
+    return data_root() / "config"
 
 
 def log_root() -> Path:
-    return application_root() / "logs"
+    return data_root() / "logs"

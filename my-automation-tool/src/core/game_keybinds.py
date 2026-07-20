@@ -11,14 +11,14 @@ from src.utils.app_paths import config_root
 from types import MappingProxyType
 from typing import Mapping
 
-from src.core.input_simulator import is_supported_key
+from src.core.input_keys import display_input_key, normalise_input_key
 
 
 class GameKeybindError(ValueError):
     """键位配置无法安全使用或保存。"""
 
 
-KEYBIND_FIELDS = (
+CORE_KEYBIND_FIELDS = (
     ("character_1", "角色 1", "1"),
     ("character_2", "角色 2", "2"),
     ("character_3", "角色 3", "3"),
@@ -28,8 +28,17 @@ KEYBIND_FIELDS = (
     ("jump", "跳跃", "Space"),
     ("execute", "处决", "F"),
 )
+EXTENSION_KEYBIND_FIELDS = (
+    ("extension_1", "扩展键 1", "F13"),
+    ("extension_2", "扩展键 2", "F14"),
+    ("extension_3", "扩展键 3", "F15"),
+)
+KEYBIND_FIELDS = CORE_KEYBIND_FIELDS + EXTENSION_KEYBIND_FIELDS
 KEYBIND_NAMES = tuple(field[0] for field in KEYBIND_FIELDS)
-RESERVED_KEYS = frozenset({"f2", "f9", "f12"})
+CORE_KEYBIND_NAMES = tuple(field[0] for field in CORE_KEYBIND_FIELDS)
+EXTENSION_KEYBIND_NAMES = tuple(field[0] for field in EXTENSION_KEYBIND_FIELDS)
+DEFAULT_KEYBIND_LABELS = {name: label for name, label, _ in KEYBIND_FIELDS}
+DEFAULT_KEYBIND_VALUES = {name: default for name, _, default in KEYBIND_FIELDS}
 
 
 def default_config_path() -> Path:
@@ -39,36 +48,51 @@ def default_config_path() -> Path:
 def _normalise_key(value: object) -> str:
     if not isinstance(value, str):
         raise GameKeybindError("键位必须是文本")
-    key = value.strip().lower()
-    if not key or not is_supported_key(key):
-        raise GameKeybindError(f"不支持的物理键：{value!r}")
-    if key in RESERVED_KEYS:
-        raise GameKeybindError(f"键位 {key.upper()} 是程序保留键")
-    return key
+    try:
+        return normalise_input_key(value)
+    except ValueError as exc:
+        raise GameKeybindError(str(exc)) from exc
 
 
 def display_key(key: str) -> str:
     """为 INI 和设置页提供稳定、易读的物理键显示。"""
-    return "Space" if key == "space" else key.upper()
+    return display_input_key(key)
 
 
 @dataclass(frozen=True)
 class GameKeybinds:
-    """所有可信 Python 宏共享的八个键盘物理键。"""
+    """All eight shared physical keys and their player-editable labels."""
 
     values: Mapping[str, str]
+    labels: Mapping[str, str] | None = None
 
     def __post_init__(self) -> None:
-        provided = set(self.values)
+        supplied_values = set(self.values)
+        values_source = (
+            {**DEFAULT_KEYBIND_VALUES, **self.values}
+            if supplied_values == set(CORE_KEYBIND_NAMES)
+            else self.values
+        )
+        provided = set(values_source)
         expected = set(KEYBIND_NAMES)
         if provided != expected:
             missing = expected - provided
             extra = provided - expected
             raise GameKeybindError(f"键位字段不完整：缺少 {sorted(missing)}，多出 {sorted(extra)}")
-        normalised = {name: _normalise_key(value) for name, value in self.values.items()}
-        if len(set(normalised.values())) != len(normalised):
-            raise GameKeybindError("各游戏动作不能使用重复键位")
+        normalised = {name: _normalise_key(value) for name, value in values_source.items()}
+        supplied_labels = self.labels or {}
+        raw_labels = {**DEFAULT_KEYBIND_LABELS, **supplied_labels}
+        if set(raw_labels) != expected:
+            raise GameKeybindError("动作名称字段不完整或包含未知字段")
+        labels = {}
+        for name, value in raw_labels.items():
+            if not isinstance(value, str) or not value.strip() or len(value.strip()) > 24:
+                raise GameKeybindError("每个动作名称必须是 1 至 24 个文字")
+            labels[name] = value.strip()
+        if len(set(labels.values())) != len(labels):
+            raise GameKeybindError("动作名称不能重复，请用“大招 1”“大招 2”区分")
         object.__setattr__(self, "values", MappingProxyType(normalised))
+        object.__setattr__(self, "labels", MappingProxyType(labels))
 
     def key_for(self, name: str) -> str:
         try:
@@ -76,8 +100,22 @@ class GameKeybinds:
         except KeyError as exc:
             raise GameKeybindError(f"未知游戏动作：{name}") from exc
 
+    def label_for(self, name: str) -> str:
+        try:
+            return self.labels[name]
+        except KeyError as exc:
+            raise GameKeybindError(f"未知游戏动作：{name}") from exc
 
-DEFAULT_GAME_KEYBINDS = GameKeybinds({name: default for name, _, default in KEYBIND_FIELDS})
+    def key_for_label(self, label: str) -> str:
+        if not isinstance(label, str):
+            raise GameKeybindError("动作名称必须是文本")
+        name = next((name for name, value in self.labels.items() if value == label.strip()), None)
+        if name is None:
+            raise GameKeybindError(f"找不到动作名称：{label}")
+        return self.key_for(name)
+
+
+DEFAULT_GAME_KEYBINDS = GameKeybinds(DEFAULT_KEYBIND_VALUES)
 
 
 def load_game_keybinds(path: Path | None = None) -> GameKeybinds:
@@ -91,12 +129,18 @@ def load_game_keybinds(path: Path | None = None) -> GameKeybinds:
             parser.read_file(stream)
     except (OSError, UnicodeError, configparser.Error) as exc:
         raise GameKeybindError(f"无法读取键位配置：{exc}") from exc
-    if set(parser.sections()) != {"game_keybinds"}:
-        raise GameKeybindError("键位配置必须只包含 [game_keybinds] 段")
+    sections = set(parser.sections())
+    if sections not in ({"game_keybinds"}, {"game_keybinds", "game_keybind_labels"}):
+        raise GameKeybindError("键位配置段无效")
     section = parser["game_keybinds"]
-    if set(section) != set(KEYBIND_NAMES):
+    if set(section) not in (set(CORE_KEYBIND_NAMES), set(KEYBIND_NAMES)):
         raise GameKeybindError("键位配置字段不完整或包含未知字段")
-    return GameKeybinds(dict(section))
+    labels = (
+        dict(parser["game_keybind_labels"])
+        if "game_keybind_labels" in parser
+        else {}
+    )
+    return GameKeybinds(dict(section), labels)
 
 
 def save_game_keybinds(keybinds: GameKeybinds, path: Path | None = None) -> None:
@@ -105,7 +149,10 @@ def save_game_keybinds(keybinds: GameKeybinds, path: Path | None = None) -> None
     config_path.parent.mkdir(parents=True, exist_ok=True)
     parser = configparser.ConfigParser(interpolation=None)
     parser["game_keybinds"] = {
-        name: display_key(keybinds.key_for(name)) for name in KEYBIND_NAMES
+        name: keybinds.key_for(name) for name in KEYBIND_NAMES
+    }
+    parser["game_keybind_labels"] = {
+        name: keybinds.label_for(name) for name in KEYBIND_NAMES
     }
     temporary_path: Path | None = None
     try:

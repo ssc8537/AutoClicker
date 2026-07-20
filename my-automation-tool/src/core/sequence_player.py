@@ -18,7 +18,13 @@ class SequencePlayer:
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
 
-    def play(self, run_once: Callable[[threading.Event], bool], count: int) -> bool:
+    def play(
+        self,
+        run_once: Callable[[threading.Event], bool],
+        count: int,
+        *,
+        run_id: int | None = None,
+    ) -> bool:
         """异步开始执行；run_once 返回 False 时立即停止后续轮次。"""
         with self._lock:
             if self._thread is not None and self._thread.is_alive():
@@ -27,7 +33,7 @@ class SequencePlayer:
             self._stop_event = threading.Event()
             self._thread = threading.Thread(
                 target=self._run,
-                args=(run_once, count, self._stop_event),
+                args=(run_once, count, self._stop_event, run_id),
                 daemon=True,
                 name="sequence-player",
             )
@@ -53,6 +59,7 @@ class SequencePlayer:
         run_once: Callable[[threading.Event], bool],
         count: int,
         stop_event: threading.Event,
+        run_id: int | None,
     ) -> None:
         completed = 0
         try:
@@ -66,6 +73,9 @@ class SequencePlayer:
             logger.info("Python 脚本结束：已完成 %s 轮", completed)
             if self._on_finished is not None:
                 try:
-                    self._on_finished()
+                    if run_id is None:
+                        self._on_finished()
+                    else:
+                        self._on_finished(run_id)
                 except Exception:
                     logger.exception("脚本结束回调失败")

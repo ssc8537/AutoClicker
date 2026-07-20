@@ -21,9 +21,16 @@ from src.utils.app_paths import resource_root
 
 
 def application_icon() -> QIcon:
-    """返回窗口和托盘共用的自有粉发头像图标。"""
+    """返回用户提供的 EXE、窗口和任务栏角色图标。"""
     asset_path = resource_root() / "assets" / "myautoplayer-pink.ico"
     return QIcon(str(asset_path))
+
+
+def tray_icon() -> QIcon:
+    """返回用户图标包中为 16–48px 托盘显示单独优化的图标。"""
+    asset_path = resource_root() / "assets" / "myautoplayer-tray.ico"
+    icon = QIcon(str(asset_path))
+    return icon if not icon.isNull() else application_icon()
 
 
 class WindowTitleBar(QWidget):
@@ -157,7 +164,9 @@ class WindowChromeController:
 
     def _create_tray(self) -> None:
         self.tray = QSystemTrayIcon(self._window)
-        icon = self._window.windowIcon()
+        icon = tray_icon()
+        if icon.isNull():
+            icon = self._window.windowIcon()
         if icon.isNull():
             icon = QApplication.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon)
         self.tray.setIcon(icon)

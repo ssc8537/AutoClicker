@@ -1,0 +1,6 @@
+{
+  "enabled": false,
+  "hotkey": "mouse_left",
+  "mode": "down",
+  "interval_ms": 10
+}

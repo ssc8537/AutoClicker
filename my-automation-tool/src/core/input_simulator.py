@@ -13,6 +13,8 @@ import ctypes
 import time
 from ctypes import wintypes
 
+from src.core.input_keys import is_keyboard_key, normalise_input_key, windows_vk_for_key
+
 # ── Win32 API 常量和类型 ────────────────────────────────────────────
 
 INPUT_KEYBOARD = 1
@@ -36,6 +38,11 @@ XBUTTON1 = 0x0001
 XBUTTON2 = 0x0002
 
 
+INPUT_EVENT_MARKER = 0x4D41504C  # "MAPL"：低级钩子只过滤本程序自己的 SendInput。
+_INPUT_MARKER = INPUT_EVENT_MARKER  # 保留既有测试/内部导入名称。
+_ULONG_PTR = ctypes.c_size_t
+
+
 class _MOUSEINPUT(ctypes.Structure):
     _fields_ = [
         ("dx", wintypes.LONG),
@@ -43,7 +50,7 @@ class _MOUSEINPUT(ctypes.Structure):
         ("mouseData", wintypes.DWORD),
         ("dwFlags", wintypes.DWORD),
         ("time", wintypes.DWORD),
-        ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
+        ("dwExtraInfo", _ULONG_PTR),
     ]
 
 
@@ -53,7 +60,7 @@ class _KEYBDINPUT(ctypes.Structure):
         ("wScan", wintypes.WORD),
         ("dwFlags", wintypes.DWORD),
         ("time", wintypes.DWORD),
-        ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
+        ("dwExtraInfo", _ULONG_PTR),
     ]
 
 
@@ -65,56 +72,23 @@ class _INPUT(ctypes.Structure):
     _fields_ = [("type", wintypes.DWORD), ("union", _INPUT_UNION)]
 
 
-# ── 虚拟键码映射表 ───────────────────────────────────────────────────
-
-_VK_MAP: dict[str, int] = {
-    # 数字键
-    "0": 0x30, "1": 0x31, "2": 0x32, "3": 0x33, "4": 0x34,
-    "5": 0x35, "6": 0x36, "7": 0x37, "8": 0x38, "9": 0x39,
-    # 字母键
-    "a": 0x41, "b": 0x42, "c": 0x43, "d": 0x44, "e": 0x45,
-    "f": 0x46, "g": 0x47, "h": 0x48, "i": 0x49, "j": 0x4A,
-    "k": 0x4B, "l": 0x4C, "m": 0x4D, "n": 0x4E, "o": 0x4F,
-    "p": 0x50, "q": 0x51, "r": 0x52, "s": 0x53, "t": 0x54,
-    "u": 0x55, "v": 0x56, "w": 0x57, "x": 0x58, "y": 0x59,
-    "z": 0x5A,
-    # 功能键
-    "f1": 0x70, "f2": 0x71, "f3": 0x72, "f4": 0x73,
-    "f5": 0x74, "f6": 0x75, "f7": 0x76, "f8": 0x77,
-    "f9": 0x78, "f10": 0x79, "f11": 0x7A, "f12": 0x7B,
-    # 特殊键
-    "space": 0x20, "enter": 0x0D, "esc": 0x1B, "escape": 0x1B,
-    "tab": 0x09, "backspace": 0x08, "delete": 0x2E, "insert": 0x2D,
-    "home": 0x24, "end": 0x23, "pageup": 0x21, "pagedown": 0x22,
-    "capslock": 0x14, "numlock": 0x90, "scrolllock": 0x91,
-    # 方向键
-    "up": 0x26, "down": 0x28, "left": 0x25, "right": 0x27,
-    # 修饰键
-    "ctrl": 0x11, "shift": 0x10, "alt": 0x12,
-    "lctrl": 0xA2, "rctrl": 0xA3,
-    "lshift": 0xA0, "rshift": 0xA1,
-    "lalt": 0xA4, "ralt": 0xA5,
-    "lwin": 0x5B, "rwin": 0x5C,
-    # 符号通过 Unicode 发送
-    # 媒体键
-    "volumemute": 0xAD, "volumedown": 0xAE, "volumeup": 0xAF,
-    "medianext": 0xB0, "mediaprev": 0xB1, "mediastop": 0xB2,
-    "mediaplay": 0xB3,
-}
-
 # ── 内部函数 ─────────────────────────────────────────────────────────
 
 def _vk_from_key(key: str) -> int:
     """将按键名转为虚拟键码。不支持的键抛出 ValueError。"""
-    vk = _VK_MAP.get(key.lower())
-    if vk is None:
-        raise ValueError(f"不支持的按键: {key!r}")
-    return vk
+    try:
+        canonical = normalise_input_key(key)
+    except ValueError as exc:
+        raise ValueError(f"不支持的按键: {key!r}") from exc
+    try:
+        return windows_vk_for_key(canonical)
+    except ValueError as exc:
+        raise ValueError(f"不支持的按键: {key!r}") from exc
 
 
 def is_supported_key(key: str) -> bool:
     """返回 key 是否是本输入模拟器可发送的单个物理键。"""
-    return isinstance(key, str) and key.lower() in _VK_MAP
+    return is_keyboard_key(key)
 
 
 def _send_input(*inputs: _INPUT) -> int:
@@ -131,10 +105,11 @@ def _make_kb_input(vk: int, flags: int = KEYEVENTF_KEYDOWN) -> _INPUT:
     inp = _INPUT()
     inp.type = INPUT_KEYBOARD
     inp.union.ki.wVk = vk
-    inp.union.ki.wScan = 0
+    # 与优秀案例 1 一致，同时提供 VK 与物理扫描码；目标程序仍按真实物理键处理。
+    inp.union.ki.wScan = ctypes.windll.user32.MapVirtualKeyW(vk, 0)
     inp.union.ki.dwFlags = flags
     inp.union.ki.time = 0
-    inp.union.ki.dwExtraInfo = ctypes.pointer(ctypes.c_ulong(0))
+    inp.union.ki.dwExtraInfo = INPUT_EVENT_MARKER
     return inp
 
 
@@ -148,7 +123,7 @@ def _make_unicode_input(char: str, down: bool = True) -> _INPUT:
     if not down:
         inp.union.ki.dwFlags |= KEYEVENTF_KEYUP
     inp.union.ki.time = 0
-    inp.union.ki.dwExtraInfo = ctypes.pointer(ctypes.c_ulong(0))
+    inp.union.ki.dwExtraInfo = INPUT_EVENT_MARKER
     return inp
 
 
@@ -161,7 +136,7 @@ def _make_mouse_input(flags: int, data: int = 0) -> _INPUT:
     inp.union.mi.mouseData = data
     inp.union.mi.dwFlags = flags
     inp.union.mi.time = 0
-    inp.union.mi.dwExtraInfo = ctypes.pointer(ctypes.c_ulong(0))
+    inp.union.mi.dwExtraInfo = INPUT_EVENT_MARKER
     return inp
 
 
@@ -229,11 +204,14 @@ def mouse_down(button: str = "left") -> None:
         "left": MOUSEEVENTF_LEFTDOWN,
         "right": MOUSEEVENTF_RIGHTDOWN,
         "middle": MOUSEEVENTF_MIDDLEDOWN,
+        "x1": MOUSEEVENTF_XDOWN,
+        "x2": MOUSEEVENTF_XDOWN,
     }
     fl = flags.get(button)
     if fl is None:
         raise ValueError(f"不支持的鼠标按钮: {button!r}")
-    _send_input(_make_mouse_input(fl))
+    data = XBUTTON1 if button == "x1" else XBUTTON2 if button == "x2" else 0
+    _send_input(_make_mouse_input(fl, data))
 
 
 def mouse_up(button: str = "left") -> None:
@@ -242,11 +220,14 @@ def mouse_up(button: str = "left") -> None:
         "left": MOUSEEVENTF_LEFTUP,
         "right": MOUSEEVENTF_RIGHTUP,
         "middle": MOUSEEVENTF_MIDDLEUP,
+        "x1": MOUSEEVENTF_XUP,
+        "x2": MOUSEEVENTF_XUP,
     }
     fl = flags.get(button)
     if fl is None:
         raise ValueError(f"不支持的鼠标按钮: {button!r}")
-    _send_input(_make_mouse_input(fl))
+    data = XBUTTON1 if button == "x1" else XBUTTON2 if button == "x2" else 0
+    _send_input(_make_mouse_input(fl, data))
 
 
 def type_string(

@@ -1,14 +1,17 @@
 import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+os.environ.setdefault("MYAUTOPLAYER_DISABLE_AUDIO", "1")
 
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QLabel,
     QComboBox,
     QGroupBox,
@@ -32,6 +35,7 @@ from src.ui.macro_library_panel import MacroEditorDialog, MacroLibraryPanel
 from src.ui.game_keybinds_panel import GameKeybindsPanel
 from src.ui.window_chrome import VerticalResizeHandle, WindowTitleBar
 from src.core.macro_file_manager import MacroFileError
+from src.core.hotkey_manager import TriggerMode
 
 from main import MainWindow
 from src.core.script_engine import PythonMacroRuntime
@@ -161,6 +165,27 @@ class UiShellTests(unittest.TestCase):
             self.assertEqual(table.selectionModel().selectedRows()[0].row(), target_row)
             window.close()
 
+    def test_macro_cannot_save_the_current_global_key(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "first.py"
+            target.write_text(VALID_MACRO, encoding="utf-8")
+            manager = Mock()
+            with patch("main._MACRO_ROOT", root), patch(
+                "main.HotkeyManager", return_value=manager
+            ), patch("main.OsdPopup"), patch("main.load_global_hotkey", return_value="backquote"), patch(
+                "main.QMessageBox.warning"
+            ) as warning:
+                window = MainWindow(PythonMacroRuntime())
+                table = window._trigger_table
+                table.selectRow(0)
+                window._show_selected_trigger_detail()
+                window._trigger_hotkey_field.set_hotkey("backquote")
+                window._save_trigger_settings()
+            self.assertIn("HOTKEY=\"f9\"", target.read_text(encoding="utf-8"))
+            warning.assert_called_once()
+            window.close()
+
     @unittest.skip("Stage 6B 触发页从只读控件升级为即时可编辑控件")
     def test_macro_and_trigger_pages_have_only_stage_2b_controls(self):
         buttons = {button.text(): button for button in self.window.findChildren(QPushButton)}
@@ -216,30 +241,32 @@ class UiShellTests(unittest.TestCase):
         self.assertEqual(trigger_table.horizontalScrollBar().maximum(), 0)
         self.assertEqual(trigger_table.horizontalScrollBar().value(), 0)
 
-    def test_features_are_disabled_and_f2_is_only_a_label(self):
-        feature_button = next(
-            button
-            for button in self.window.findChildren(QPushButton)
-            if button.text() == "应用功能设置"
-        )
-        self.assertFalse(feature_button.isEnabled())
-        combo_values = {
-            combo.currentText() for combo in self.window.findChildren(QComboBox)
-        }
-        field_values = {field.text() for field in self.window.findChildren(QLineEdit)}
-        self.assertIn("F2（仅占位）", combo_values)
-        self.assertIn("仅 UI 占位，不注册", field_values)
+    def test_quick_click_controls_share_one_compact_row(self):
+        group = self.window.findChild(QGroupBox, "quick_click_group")
+        enabled = self.window.findChild(QCheckBox, "quick_click_enabled")
+        hotkey = self.window.findChild(QLineEdit, "quick_click_hotkey")
+        mode = self.window.findChild(QComboBox, "quick_click_mode")
+        interval = self.window.findChild(QWidget, "quick_click_interval")
+        self.assertIsNotNone(group)
+        self.assertEqual(enabled.text(), "启用")
+        self.assertEqual([mode.itemText(i) for i in range(mode.count())], ["按下", "切换"])
+        controls = (enabled, hotkey, mode, interval)
+        self.assertLessEqual(max(control.pos().y() for control in controls) - min(control.pos().y() for control in controls), 8)
 
-    def test_settings_page_exposes_editable_game_keybinds_and_save_button(self):
+    def test_features_page_exposes_editable_game_keybinds_and_save_button(self):
         panel = self.window.findChild(GameKeybindsPanel)
+        scroll = self.window.findChild(QScrollArea, "features_scroll_area")
         self.assertIsNotNone(panel)
+        self.assertTrue(scroll.widget().isAncestorOf(panel))
         self.assertEqual(
             panel.findChild(QLineEdit, "game_keybind_character_1").text(), "1"
         )
         self.assertTrue(panel.findChild(QPushButton, "save_game_keybinds_button").isEnabled())
+        self.assertIsNotNone(panel.findChild(QLineEdit, "game_keybind_label_ultimate"))
+        self.assertIsNotNone(panel.findChild(QLineEdit, "game_keybind_label_extension_1"))
 
-    def test_settings_page_scrolls_without_compressing_game_keybind_rows(self):
-        scroll = self.window.findChild(QScrollArea, "settings_scroll_area")
+    def test_features_page_scrolls_without_compressing_game_keybind_rows(self):
+        scroll = self.window.findChild(QScrollArea, "features_scroll_area")
         panel = self.window.findChild(GameKeybindsPanel)
         self.assertIsNotNone(scroll)
         self.assertEqual(scroll.horizontalScrollBarPolicy(), Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -248,7 +275,7 @@ class UiShellTests(unittest.TestCase):
             panel.findChild(QLineEdit, f"game_keybind_{name}")
             for name in ("character_1", "character_2", "character_3", "skill", "echo", "ultimate", "jump", "execute")
         ]
-        self.window.findChild(QTabWidget, "main_tabs").setCurrentIndex(3)
+        self.window.findChild(QTabWidget, "main_tabs").setCurrentIndex(2)
         self.window.show()
         self.app.processEvents()
         for field in fields:
@@ -258,6 +285,13 @@ class UiShellTests(unittest.TestCase):
             panel.findChild(QPushButton, "save_game_keybinds_button").pos().y(),
             fields[-1].pos().y(),
         )
+
+    def test_settings_page_has_osd_switch_and_unclipped_status_dot(self):
+        osd = self.window.findChild(QCheckBox, "osd_enabled_field")
+        status = self.window.findChild(QLabel, "global_status_label")
+        self.assertIsNotNone(osd)
+        self.assertEqual(osd.text(), "显示 OSD 屏幕提示")
+        self.assertTrue(status.text().startswith("● "))
 
     def test_mature_rose_theme_is_applied(self):
         stylesheet = self.window.styleSheet()
@@ -277,6 +311,30 @@ class UiShellTests(unittest.TestCase):
         manager.set_global_disable_key.assert_called_once_with("f12")
         manager.start.assert_called_once()
         window.deleteLater()
+
+    def test_trigger_parameter_change_rebinds_immediately(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "instant.py").write_text(VALID_MACRO, encoding="utf-8")
+            manager = Mock()
+            manager.clear_pending_events.return_value = 0
+            with patch("main._MACRO_ROOT", root), patch(
+                "main.HotkeyManager", return_value=manager
+            ), patch("main.OsdPopup"), patch("main.SoundEffects"):
+                window = MainWindow(PythonMacroRuntime())
+            manager.reset_mock()
+            manager.clear_pending_events.return_value = 0
+            window._trigger_table.selectRow(0)
+            window._show_selected_trigger_detail()
+            start = time.monotonic()
+            window._trigger_mode_field.setCurrentIndex(1)
+            self.app.processEvents()
+            self.assertLess(time.monotonic() - start, 1.0)
+            self.assertTrue(
+                any(call.kwargs.get("mode") == TriggerMode.DOWN for call in manager.register.call_args_list)
+            )
+            manager.clear_pending_events.assert_called()
+            window.deleteLater()
 
     @unittest.skip("Stage 6B 状态改为每个宏独立启用，不再唯一活动宏")
     def test_activity_status_is_unique_and_invalidated_macro_stops(self):
@@ -504,32 +562,31 @@ class UiShellTests(unittest.TestCase):
                 (prompt_config / "ai_prompt.txt").read_text(encoding="utf-8"),
                 (prompt_config / "ai_prompt.default.txt").read_text(encoding="utf-8"),
             )
-            self.assertIn("二、当前能够直接使用的函数", general_prompt)
+            self.assertIn("三、唯一允许使用的 player API", general_prompt)
             self.assertIn("player.tap(key, hold_ms=20)", general_prompt)
             self.assertIn("player.sleep(ms)", general_prompt)
-            for method in ("切换(1|2|3)", "战技()", "声骸()", "大招()", "跳跃()", "处决()"):
+            for method in ("切换(1)", "切换(2)", "切换(3)", "战技()", "声骸()", "大招()", "跳跃()", "处决()"):
                 self.assertIn(f"player.{method}", general_prompt)
-            self.assertIn("HOTKEY：必须固定写为 \"f9\"", general_prompt)
-            self.assertIn("Q：声骸技能", general_prompt)
-            self.assertIn("R：大招", general_prompt)
-            self.assertIn("1号角色名称：", general_prompt)
-            self.assertIn("2号角色名称：", general_prompt)
-            self.assertIn("3号角色名称：", general_prompt)
+            self.assertIn("HOTKEY：一个第十节中的键盘内部值或鼠标触发内部值", general_prompt)
+            self.assertIn('player.按键("当前动作名称"', general_prompt)
+            for method in ("mouse_click", "mouse_down", "mouse_up", "mouse_repeat"):
+                self.assertIn(f"player.{method}", general_prompt)
+            for name in ("mouse_left", "mouse_right", "mouse_middle", "mouse_back", "mouse_forward"):
+                self.assertIn(name, general_prompt)
+            self.assertIn("角色 1、角色 2、角色 3", general_prompt)
+            self.assertIn("特殊资源", general_prompt)
+            self.assertIn("增益窗口", general_prompt)
             for direction in ("1→2", "1→3", "2→1", "2→3", "3→1", "3→2"):
-                self.assertIn(direction, general_prompt)
-            self.assertIn("至少 50ms", general_prompt)
-            self.assertIn("至少 1080ms", general_prompt)
-            self.assertIn("1000ms 冷却和额外 80ms 安全余量", general_prompt)
-            self.assertIn('player.sleep(50)\nplayer.tap("2")', general_prompt)
-            self.assertIn('player.tap("2")\nplayer.sleep(1080)\nplayer.tap("1")', general_prompt)
-            self.assertIn('player.tap("R")\nplayer.sleep(1500)\nplayer.tap("1")', general_prompt)
-            r_example = general_prompt.split("大招后直接切人示例：", 1)[1].split(
-                "三角色顺序切换示例：", 1
-            )[0]
-            self.assertNotIn("player.sleep(50)", r_example)
-            self.assertNotIn("player.sleep(1080)", r_example)
-            self.assertIn("角色编号说明注释", general_prompt)
-            self.assertIn("player.切换(1)、player.切换(2)、player.切换(3)", general_prompt)
+                self.assertIn(direction.replace("→", " 到 "), general_prompt)
+            self.assertIn("至少等待 50ms", general_prompt)
+            self.assertIn("至少等待 1080ms", general_prompt)
+            self.assertIn("1000ms 和 80ms 余量", general_prompt)
+            self.assertIn("项目现有保守等待为 1500ms", general_prompt)
+            self.assertIn("示例 A（按下模式与鼠标动作", general_prompt)
+            self.assertIn("示例 B（切换模式", general_prompt)
+            self.assertIn("示例 C（三角色确定性轮转", general_prompt)
+            self.assertIn("当前共享动作映射", general_prompt)
+            self.assertIn("完整按键字典", general_prompt)
             self.assertNotIn("小技能", general_prompt)
             self.assertNotIn("##", general_prompt)
             self.assertNotIn("```", general_prompt)

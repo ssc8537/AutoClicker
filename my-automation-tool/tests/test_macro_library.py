@@ -49,14 +49,15 @@ class MacroLibraryTests(unittest.TestCase):
             self.assertIn("必须定义 run", entries[1].error)
             self.assertIn("必须是字面量", entries[0].error)
 
-    def test_rejects_only_f12_and_allows_duplicate_hotkeys(self):
+    def test_allows_f12_and_duplicate_hotkeys_but_rejects_unknown_keys(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / "reserved.py").write_text(VALID.replace('"f9"', '"f12"'), encoding="utf-8")
+            (root / "f12.py").write_text(VALID.replace('"f9"', '"f12"'), encoding="utf-8")
+            (root / "invalid.py").write_text(VALID.replace('"f9"', '"f25"'), encoding="utf-8")
             (root / "first.py").write_text(VALID.replace('"f9"', '"f1"'), encoding="utf-8")
             (root / "second.py").write_text(VALID.replace('"f9"', '"f1"'), encoding="utf-8")
             entries = {entry.path.name: entry for entry in scan_macro_root(root)}
-            self.assertFalse(entries["reserved.py"].valid)
-            self.assertIn("F12", entries["reserved.py"].error)
+            self.assertTrue(entries["f12.py"].valid)
+            self.assertFalse(entries["invalid.py"].valid)
             self.assertTrue(entries["first.py"].valid)
             self.assertTrue(entries["second.py"].valid)

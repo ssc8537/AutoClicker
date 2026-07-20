@@ -7,7 +7,12 @@ $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $PSScriptRoot
 Push-Location $projectRoot
 try {
-    python scripts/generate_windows_icon.py
+    if (-not (Test-Path -LiteralPath "assets\myautoplayer-pink.ico")) {
+        throw "缺少用户 EXE/窗口/任务栏图标：assets\myautoplayer-pink.ico"
+    }
+    if (-not (Test-Path -LiteralPath "assets\myautoplayer-tray.ico")) {
+        throw "缺少用户托盘图标：assets\myautoplayer-tray.ico"
+    }
     python scripts/generate_sound_effects.py
     $pyInstallerArgs = @(
         "-m", "PyInstaller", "--noconfirm", "--clean", "--windowed",

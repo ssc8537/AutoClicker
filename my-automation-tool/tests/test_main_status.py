@@ -1,9 +1,13 @@
+import threading
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from main import (
     _HotkeyDispatcher,
     _INSTRUCTION_TEXT,
+    MainWindow,
     global_status_notification,
     show_startup_window,
 )
@@ -35,6 +39,9 @@ class _FakePlayer:
 
     def stop(self):
         self.stop_calls += 1
+
+    def is_running(self):
+        return True
 
 
 class _FakeSoundEffects:
@@ -89,24 +96,100 @@ class MainStatusTests(unittest.TestCase):
         self.assertEqual(target._osd_popup.calls[-1], ("全局脚本已禁用", False))
         self.assertEqual(sounds.calls, ["started", "stopped"])
 
+    def test_macro_start_and_stop_do_not_play_global_toggle_sounds(self):
+        sounds = _FakeSoundEffects()
+        target = SimpleNamespace(
+            _players={"a": object()}, _running_names={"a": "goodbye"}, _osd_popup=_FakeOsd(),
+            _sound_effects=sounds, _on_natural_finish=None,
+            _player_generations={"a": 1}, _stop_lock=threading.RLock(),
+            _pending_starts={}, _pending_stop_generations={},
+        )
+        _HotkeyDispatcher._on_player_finished(target, "a", 1)
+        self.assertEqual(sounds.calls, [])
+
+    def test_mouse_release_stop_requests_player_stop_before_qt_queue_delivery(self):
+        player = _FakePlayer()
+        target = SimpleNamespace(
+            _players={"side": player}, _stop_lock=threading.RLock(),
+            _pending_stop_generations={}, _pending_starts={},
+            f9_stop_signal=SimpleNamespace(emit=lambda *_: None),
+        )
+        _HotkeyDispatcher.on_macro_stop_hotkey(target, "side", 2)
+        self.assertEqual(player.stop_calls, 1)
+
+    def test_hook_thread_only_queues_path_and_never_loads_macro(self):
+        emitted = []
+        target = SimpleNamespace(
+            macro_start_signal=SimpleNamespace(emit=lambda *args: emitted.append(args))
+        )
+        path = Path("hello_world.py")
+        with patch("main.load_python_macro") as load:
+            _HotkeyDispatcher.on_macro_hotkey(target, path, "macro", 7)
+        load.assert_not_called()
+        self.assertEqual(emitted, [(path, "macro", 7)])
+
+    def test_duplicate_file_watcher_snapshot_does_not_rebuild_bindings(self):
+        class Manager:
+            def __init__(self):
+                self.registered = []
+                self.unregistered = []
+                self.clear_calls = 0
+
+            def register(self, *args, **kwargs):
+                self.registered.append((args, kwargs))
+
+            def unregister(self, binding_id):
+                self.unregistered.append(binding_id)
+
+            def clear_pending_events(self):
+                self.clear_calls += 1
+                return 0
+
+        manager = Manager()
+        entry = SimpleNamespace(
+            valid=True,
+            path=Path("hello_world.py"),
+            macro=SimpleNamespace(enabled=True, hotkey="mouse_back", mode="down"),
+        )
+        target = SimpleNamespace(
+            _hotkey_mgr=manager,
+            _dispatcher=SimpleNamespace(
+                on_macro_hotkey=lambda *_: None,
+                on_macro_stop_hotkey=lambda *_: None,
+            ),
+            _macro_entries=[entry],
+            _global_hotkey="backquote",
+        )
+        MainWindow._configure_independent_hotkeys(target)
+        MainWindow._configure_independent_hotkeys(target)
+        self.assertEqual(len(manager.registered), 1)
+        self.assertEqual(manager.clear_calls, 1)
+
     def test_stop_osd_uses_the_macro_name_cached_at_start(self):
         player = _FakePlayer()
         target = SimpleNamespace(
             _players={"a": player},
+            _stop_lock=threading.RLock(),
+            _pending_stop_generations={},
+            _pending_starts={},
             _running_names={"a": "新宏6"},
             _osd_popup=_FakeOsd(),
         )
-        _HotkeyDispatcher._stop_f9(target, "a")
+        _HotkeyDispatcher._stop_f9(target, "a", 2)
         self.assertEqual(player.stop_calls, 1)
 
     def test_natural_finish_keeps_the_started_macro_name_after_selection_changes(self):
         target = SimpleNamespace(
             _on_natural_finish=None,
             _players={"a": object()},
+            _player_generations={"a": 1},
             _running_names={"a": "goodbye"},
             _osd_popup=_FakeOsd(),
+            _stop_lock=threading.RLock(),
+            _pending_starts={},
+            _pending_stop_generations={},
         )
-        _HotkeyDispatcher._on_player_finished(target, "a")
+        _HotkeyDispatcher._on_player_finished(target, "a", 1)
         self.assertEqual(target._osd_popup.calls, [("goodbye 宏已停止", False)])
         self.assertEqual(target._running_names, {})
 

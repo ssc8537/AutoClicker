@@ -4,6 +4,8 @@
 用 PySide6 创建无边框、透明背景、置顶浮层。
 """
 import json
+import os
+import tempfile
 from pathlib import Path
 
 from src.utils.app_paths import config_root
@@ -18,9 +20,10 @@ class OsdPopup(QWidget):
 
     _SETTINGS_PATH = config_root() / "settings.json"
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, settings_path: Path | None = None):
         # OSD 是全局工具浮层，不能依附主窗口，否则会随主窗口层级和生命周期变化。
         super().__init__(None)
+        self._settings_path = settings_path or self._SETTINGS_PATH
         self._setup_window_flags()
         self._load_config()
         self.setFixedSize(400, 60)
@@ -46,8 +49,8 @@ class OsdPopup(QWidget):
         self.popup_success_color = "#00FF00"
         self.popup_end_color = "#FF0000"
         try:
-            if self._SETTINGS_PATH.exists():
-                with open(self._SETTINGS_PATH, "r", encoding="utf-8") as f:
+            if self._settings_path.exists():
+                with open(self._settings_path, "r", encoding="utf-8") as f:
                     cfg = json.load(f)
                 self.popup_enabled = cfg.get("popup_enabled", True)
                 self.popup_y = cfg.get("popup_position_y", 10)
@@ -57,6 +60,35 @@ class OsdPopup(QWidget):
                 self.popup_end_color = cfg.get("popup_end_color", "#FF0000")
         except Exception:
             pass
+
+    def set_enabled(self, enabled: bool) -> None:
+        """立即显示/隐藏 OSD 设置，并与其它 settings.json 字段和平共存。"""
+        self.popup_enabled = bool(enabled)
+        if not self.popup_enabled:
+            self._hide_timer.stop()
+            self._fade_anim.stop()
+            self.hide()
+        temporary_name = None
+        try:
+            data = {}
+            if self._settings_path.is_file():
+                loaded = json.loads(self._settings_path.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict):
+                    data = loaded
+            data["popup_enabled"] = self.popup_enabled
+            self._settings_path.parent.mkdir(parents=True, exist_ok=True)
+            descriptor, temporary_name = tempfile.mkstemp(
+                prefix=f".{self._settings_path.name}.",
+                dir=self._settings_path.parent,
+                text=True,
+            )
+            with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as temporary:
+                json.dump(data, temporary, ensure_ascii=False, indent=2)
+                temporary.write("\n")
+            os.replace(temporary_name, self._settings_path)
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            if temporary_name is not None:
+                Path(temporary_name).unlink(missing_ok=True)
 
     def _setup_ui(self):
         """初始化标签和阴影效果。"""

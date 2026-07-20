@@ -2,6 +2,7 @@ import unittest
 from types import SimpleNamespace
 
 from src.core.hotkey_manager import HotkeyManager, TriggerMode
+from src.core.input_simulator import INPUT_EVENT_MARKER
 
 
 class HotkeyManagerTests(unittest.TestCase):
@@ -12,7 +13,8 @@ class HotkeyManagerTests(unittest.TestCase):
         manager.global_disabled = False
         manager.is_mouse_over_window = lambda: False
         manager.register(
-            "f9", lambda: started.append("start"), mode, lambda: stopped.append("stop"),
+            "f9", lambda _generation: started.append("start"), mode,
+            lambda _generation: stopped.append("stop"),
             stop_on_release=stop_on_release,
         )
         return manager, manager._make_handler("f9"), started, stopped
@@ -27,14 +29,12 @@ class HotkeyManagerTests(unittest.TestCase):
         self.assertEqual(started, ["start"])
         self.assertEqual(stopped, ["stop"])
 
-    def test_down_finite_count_does_not_stop_on_release(self):
-        _, handler, started, stopped = self.make_handler(
-            TriggerMode.DOWN, stop_on_release=False
-        )
+    def test_down_release_is_an_idempotent_stop_even_for_finite_runs(self):
+        _, handler, started, stopped = self.make_handler(TriggerMode.DOWN)
         handler(self.event("down"))
         handler(self.event("up"))
         self.assertEqual(started, ["start"])
-        self.assertEqual(stopped, [])
+        self.assertEqual(stopped, ["stop"])
 
     def test_switch_toggles_on_each_physical_press(self):
         _, handler, started, stopped = self.make_handler(TriggerMode.SWITCH)
@@ -49,8 +49,8 @@ class HotkeyManagerTests(unittest.TestCase):
         manager = HotkeyManager()
         manager.global_disabled = False
         manager.is_mouse_over_window = lambda: False
-        manager.register("f1", lambda: started.append("f1"), TriggerMode.DOWN)
-        manager.register("f3", lambda: started.append("f3"), TriggerMode.DOWN)
+        manager.register("f1", lambda _generation: started.append("f1"), TriggerMode.DOWN)
+        manager.register("f3", lambda _generation: started.append("f3"), TriggerMode.DOWN)
         first = manager._make_handler("f1")
         second = manager._make_handler("f3")
         first(self.event("down"))
@@ -60,6 +60,170 @@ class HotkeyManagerTests(unittest.TestCase):
         manager.mark_finished("f1")
         second(self.event("down"))
         self.assertEqual(started, ["f1", "f3", "f3"])
+
+    def test_side_button_down_mode_stops_immediately_on_release(self):
+        started = []
+        stopped = []
+        manager = HotkeyManager()
+        manager.global_disabled = False
+        manager.is_mouse_over_window = lambda: False
+        manager.register(
+            "mouse_back", lambda _generation: started.append("start"), TriggerMode.DOWN,
+            lambda _generation: stopped.append("stop"), binding_id="side",
+        )
+        manager._dispatch_physical_event("mouse_back", True)
+        manager._dispatch_physical_event("mouse_back", False)
+        self.assertEqual(started, ["start"])
+        self.assertEqual(stopped, ["stop"])
+
+    def test_raw_xbutton_edges_are_read_and_only_own_marker_is_ignored(self):
+        manager = HotkeyManager()
+        queued = []
+        manager._queue_physical_event = lambda key, pressed: queued.append((key, pressed))
+        manager._on_windows_mouse_event(
+            0x020B, SimpleNamespace(mouseData=1 << 16, dwExtraInfo=None, flags=1)
+        )
+        manager._on_windows_mouse_event(
+            0x020C, SimpleNamespace(mouseData=1 << 16, dwExtraInfo=None, flags=1)
+        )
+        manager._on_windows_mouse_event(
+            0x020B,
+            SimpleNamespace(mouseData=1 << 16, dwExtraInfo=INPUT_EVENT_MARKER, flags=1),
+        )
+        self.assertEqual(queued, [("mouse_back", True), ("mouse_back", False)])
+
+    def test_raw_windows_vk_is_stable_under_ime_and_ignores_processkey(self):
+        manager = HotkeyManager()
+        queued = []
+        manager._queue_physical_event = lambda key, pressed: queued.append((key, pressed))
+        manager._on_windows_keyboard_event(
+            0x0100, SimpleNamespace(vkCode=0x41, flags=0, dwExtraInfo=None)
+        )
+        manager._on_windows_keyboard_event(
+            0x0101, SimpleNamespace(vkCode=0x41, flags=0, dwExtraInfo=None)
+        )
+        manager._on_windows_keyboard_event(
+            0x0100, SimpleNamespace(vkCode=0xE5, flags=0, dwExtraInfo=0)
+        )
+        # 案例只过滤自己的 dwExtraInfo；第三方/驱动 injected 物理键仍可触发。
+        manager._on_windows_keyboard_event(
+            0x0100, SimpleNamespace(vkCode=0x42, flags=0x10, dwExtraInfo=0)
+        )
+        manager._on_windows_keyboard_event(
+            0x0100,
+            SimpleNamespace(vkCode=0x43, flags=0x10, dwExtraInfo=INPUT_EVENT_MARKER),
+        )
+        self.assertEqual(queued, [("a", True), ("a", False), ("b", True)])
+
+    def test_old_finish_generation_cannot_clear_a_new_switch_run(self):
+        started = []
+        stopped = []
+        manager = HotkeyManager()
+        manager.global_disabled = False
+        manager.is_mouse_over_window = lambda: False
+        manager.register(
+            "f9", lambda generation: started.append(generation), TriggerMode.SWITCH,
+            lambda generation: stopped.append(generation), binding_id="macro",
+        )
+        handler = manager._make_handler("f9")
+        handler(self.event("down"))
+        handler(self.event("up"))
+        handler(self.event("down"))
+        handler(self.event("up"))
+        handler(self.event("down"))
+        manager.mark_finished("macro", started[0])
+        handler(self.event("up"))
+        handler(self.event("down"))
+        self.assertEqual(started, [1, 3])
+        self.assertEqual(stopped, [2, 4])
+
+    def test_reconfiguration_clears_old_edges_without_waiting(self):
+        manager = HotkeyManager()
+        manager._pressed_hotkeys.add("mouse_back")
+        manager._event_queue.put_nowait(("mouse_back", True, 0))
+        manager._event_queue.put_nowait(("mouse_back", False, 0))
+        self.assertEqual(manager.clear_pending_events(), 2)
+        self.assertEqual(manager._pressed_hotkeys, set())
+        self.assertTrue(manager._event_queue.empty())
+
+    def test_generation_never_resets_across_disable_and_reregister(self):
+        started = []
+        stopped = []
+        manager = HotkeyManager()
+        manager.global_disabled = False
+        manager.is_mouse_over_window = lambda: False
+        manager.register(
+            "mouse_back", started.append, TriggerMode.DOWN, stopped.append,
+            binding_id="macro",
+        )
+        for _ in range(20):
+            manager._dispatch_physical_event("mouse_back", True)
+            manager._dispatch_physical_event("mouse_back", False)
+        self.assertEqual(started[-1], 39)
+        self.assertEqual(stopped[-1], 40)
+
+        manager.unregister("macro")
+        manager.register(
+            "mouse_back", started.append, TriggerMode.DOWN, stopped.append,
+            binding_id="macro",
+        )
+        manager._dispatch_physical_event("mouse_back", True)
+        self.assertEqual(started[-1], 41)
+
+    def test_unmatched_release_still_stops_a_down_binding(self):
+        stopped = []
+        manager = HotkeyManager()
+        manager.global_disabled = False
+        manager.register(
+            "mouse_back", lambda _generation: None, TriggerMode.DOWN,
+            stopped.append, binding_id="macro",
+        )
+        manager._pressed_hotkeys.clear()
+        manager._dispatch_physical_event("mouse_back", False)
+        self.assertEqual(stopped, [1])
+
+    def test_one_hundred_fast_side_button_down_up_pairs_never_stick(self):
+        started = []
+        stopped = []
+        manager = HotkeyManager()
+        manager.global_disabled = False
+        manager.is_mouse_over_window = lambda: False
+        manager.register(
+            "mouse_back", started.append, TriggerMode.DOWN, stopped.append,
+            binding_id="macro",
+        )
+        for _ in range(100):
+            manager._dispatch_physical_event("mouse_back", True)
+            manager._dispatch_physical_event("mouse_back", False)
+        self.assertEqual(len(started), 100)
+        self.assertEqual(len(stopped), 100)
+        self.assertFalse(manager._bindings_by_id["macro"].is_running)
+
+    def test_one_hundred_fast_switch_presses_end_stopped(self):
+        started = []
+        stopped = []
+        manager = HotkeyManager()
+        manager.global_disabled = False
+        manager.is_mouse_over_window = lambda: False
+        manager.register(
+            "mouse_back", started.append, TriggerMode.SWITCH, stopped.append,
+            binding_id="macro",
+        )
+        for _ in range(100):
+            manager._dispatch_physical_event("mouse_back", True)
+            manager._dispatch_physical_event("mouse_back", False)
+        self.assertEqual(len(started), 50)
+        self.assertEqual(len(stopped), 50)
+        self.assertFalse(manager._bindings_by_id["macro"].is_running)
+
+    def test_key_autorepeat_is_deduplicated_before_entering_the_queue(self):
+        manager = HotkeyManager()
+        manager._listening = True
+        for _ in range(100):
+            manager._queue_physical_event("a", True)
+        manager._queue_physical_event("a", False)
+        self.assertEqual(manager._event_queue.qsize(), 2)
+        manager.clear_pending_events()
 
 if __name__ == "__main__":
     unittest.main()

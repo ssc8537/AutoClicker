@@ -11,6 +11,7 @@ from src.core.input_simulator import (
     press_key,
     release_key,
 )
+from src.core.input_keys import MOUSE_BUTTON_FOR_HOTKEY, MOUSE_HOTKEYS, normalise_input_key
 from src.core.game_keybinds import DEFAULT_GAME_KEYBINDS, GameKeybinds
 
 
@@ -21,7 +22,7 @@ class ScriptInterrupted(Exception):
 class ScriptPlayer:
     """脚本作者只使用受控输入 API，不直接接触线程或 SendInput。"""
 
-    _MOUSE_BUTTONS = frozenset({"left", "right"})
+    _MOUSE_BUTTONS = frozenset({"left", "right", "middle", "x1", "x2"})
 
     def __init__(
         self,
@@ -63,12 +64,27 @@ class ScriptPlayer:
     def 处决(self) -> None:
         self.tap(self._keybinds.key_for("execute"))
 
+    def 按键(self, action_name: str, hold_ms: int = 20) -> None:
+        """按保存后的自定义动作名称发送对应按键，例如 ``player.按键("大招 1")``。"""
+        try:
+            key = self._keybinds.key_for_label(action_name)
+        except Exception as exc:
+            raise ValueError(str(exc)) from exc
+        self.tap(key, hold_ms)
+
     def tap(self, key: str, hold_ms: int = 20) -> None:
-        """现实键盘按下并释放一个单键；中断时仍保证释放。"""
-        if not is_supported_key(key):
-            raise ValueError(f"不支持的物理按键: {key!r}")
+        """发送一个配置的键盘键或鼠标按钮；中断时始终释放。"""
+        try:
+            key = normalise_input_key(key)
+        except ValueError as exc:
+            raise ValueError(f"不支持的物理按键: {key!r}") from exc
         if isinstance(hold_ms, bool) or not isinstance(hold_ms, int) or hold_ms < 1:
             raise ValueError("hold_ms 必须是大于 0 的整数")
+        if key in MOUSE_HOTKEYS:
+            self.mouse_click(MOUSE_BUTTON_FOR_HOTKEY[key], hold_ms)
+            return
+        if not is_supported_key(key):
+            raise ValueError(f"不支持的物理按键: {key!r}")
         self._raise_if_stopped()
         pressed = False
         interrupted = False
@@ -91,7 +107,7 @@ class ScriptPlayer:
             raise ScriptInterrupted()
 
     def mouse_down(self, button: str = "left") -> None:
-        """按住当前鼠标位置的左键或右键；重复按下同一键不会重复发送。"""
+        """按住当前鼠标位置的一个标准鼠标键；重复按下不会重复发送。"""
         self._validate_mouse_button(button)
         self._raise_if_stopped()
         if button not in self._held_mouse_buttons:
@@ -99,7 +115,7 @@ class ScriptPlayer:
             self._held_mouse_buttons.add(button)
 
     def mouse_up(self, button: str = "left") -> None:
-        """松开本播放器此前按住的左键或右键；重复松开是幂等的。"""
+        """松开本播放器此前按住的标准鼠标键；重复松开是幂等的。"""
         self._validate_mouse_button(button)
         if button in self._held_mouse_buttons:
             try:
@@ -108,7 +124,7 @@ class ScriptPlayer:
                 self._held_mouse_buttons.discard(button)
 
     def mouse_click(self, button: str = "left", hold_ms: int = 10) -> None:
-        """左键或右键单击；中断时仍在 finally 中松开。"""
+        """单击一个标准鼠标键；中断时仍在 finally 中松开。"""
         self._validate_mouse_button(button)
         self._validate_positive_int(hold_ms, "hold_ms")
         self.mouse_down(button)
@@ -147,7 +163,7 @@ class ScriptPlayer:
     @classmethod
     def _validate_mouse_button(cls, button: str) -> None:
         if not isinstance(button, str) or button not in cls._MOUSE_BUTTONS:
-            raise ValueError('button 只支持 "left" 或 "right"')
+            raise ValueError('button 只支持 "left"、"right"、"middle"、"x1" 或 "x2"')
 
     @staticmethod
     def _validate_positive_int(value: int, name: str) -> None:

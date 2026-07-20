@@ -28,3 +28,20 @@ class AppPathsTests(unittest.TestCase):
             self.assertEqual(app_paths.config_root(), executable.parent / "config")
             self.assertEqual(app_paths.log_root(), executable.parent / "logs")
             self.assertEqual(app_paths.resource_root(), meipass)
+
+    def test_frozen_dist_build_reuses_the_checkout_macro_and_config_folders(self):
+        with self.subTest("development dist layout"):
+            import tempfile
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / "macros").mkdir()
+                (root / "config").mkdir()
+                executable = root / "dist" / "MyAutoPlayer" / "MyAutoPlayer.exe"
+                executable.parent.mkdir(parents=True)
+                executable.touch()
+                with (
+                    patch.object(app_paths.sys, "frozen", True, create=True),
+                    patch.object(app_paths.sys, "executable", str(executable)),
+                ):
+                    self.assertEqual(app_paths.macro_root(), root / "macros")
+                    self.assertEqual(app_paths.config_root(), root / "config")
