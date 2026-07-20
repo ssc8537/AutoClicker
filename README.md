@@ -2,7 +2,7 @@
 
 面向 Windows 11 的个人游戏键鼠自动化工具。程序使用 Python + PySide6；每个连招是一个可阅读、可编辑、可停止的本地 Python `run(player)` 宏，不使用案例 JSON/QIM 作为运行格式。
 
-当前已验收版本：[`VV025-ui-gallery-release`](https://github.com/ssc8537/AutoClicker/releases/tag/VV025-ui-gallery-release)，默认主干 `master` 同步包含最新 README 与配置说明。
+当前已验收版本：[`VV025-ui-gallery-release`](https://github.com/ssc8537/AutoClicker/tree/VV025-ui-gallery-release)，默认主干 `master` 同步包含最新 README 与配置说明。
 
 > 只运行你信任的宏文件。正式 EXE 会请求管理员权限，以便与可能以管理员身份运行的游戏保持同一权限层级。
 
