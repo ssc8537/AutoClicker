@@ -10,8 +10,8 @@ from pathlib import Path
 
 from src.utils.app_paths import config_root
 
-from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve
-from PySide6.QtGui import QFont, QColor
+from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QRect
+from PySide6.QtGui import QFont, QColor, QFontMetrics
 from PySide6.QtWidgets import QWidget, QLabel, QHBoxLayout, QApplication, QGraphicsDropShadowEffect
 
 
@@ -19,6 +19,12 @@ class OsdPopup(QWidget):
     """屏幕提示文本浮层窗口，脚本执行/结束时在屏幕顶部居中显示提示。"""
 
     _SETTINGS_PATH = config_root() / "settings.json"
+    _MIN_WIDTH = 320
+    _MIN_HEIGHT = 60
+    _HORIZONTAL_MARGIN = 24
+    _VERTICAL_MARGIN = 10
+    _SHADOW_GUARD = 20
+    _SCREEN_MARGIN = 24
 
     def __init__(self, parent=None, *, settings_path: Path | None = None):
         # OSD 是全局工具浮层，不能依附主窗口，否则会随主窗口层级和生命周期变化。
@@ -26,7 +32,7 @@ class OsdPopup(QWidget):
         self._settings_path = settings_path or self._SETTINGS_PATH
         self._setup_window_flags()
         self._load_config()
-        self.setFixedSize(400, 60)
+        self.resize(self._MIN_WIDTH, self._MIN_HEIGHT)
         self._setup_ui()
         self._setup_animation()
 
@@ -36,9 +42,11 @@ class OsdPopup(QWidget):
             Qt.FramelessWindowHint
             | Qt.WindowStaysOnTopHint
             | Qt.Tool
+            | Qt.WindowDoesNotAcceptFocus
         )
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
 
     def _load_config(self):
         """从 settings.json 加载OSD配置，失败时用默认值。"""
@@ -93,10 +101,16 @@ class OsdPopup(QWidget):
     def _setup_ui(self):
         """初始化标签和阴影效果。"""
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(20, 10, 20, 10)
+        layout.setContentsMargins(
+            self._HORIZONTAL_MARGIN,
+            self._VERTICAL_MARGIN,
+            self._HORIZONTAL_MARGIN,
+            self._VERTICAL_MARGIN,
+        )
 
         self._label = QLabel(self)
         self._label.setAlignment(Qt.AlignCenter)
+        self._label.setTextFormat(Qt.TextFormat.PlainText)
         self._label.setFont(QFont("Microsoft YaHei", self.popup_size, QFont.Bold))
         self._label.setStyleSheet(
             f"color: {self.popup_success_color}; background: transparent;"
@@ -120,6 +134,49 @@ class OsdPopup(QWidget):
         self._hide_timer.setSingleShot(True)
         self._hide_timer.timeout.connect(self._start_fade_out)
 
+    def _resize_for_text(self, text: str) -> None:
+        """按完整文字自适应 OSD；超过屏幕宽度时换行增高，不省略名称。"""
+        screen = self.screen() or QApplication.primaryScreen()
+        if screen is None:
+            max_width = self._MIN_WIDTH
+        else:
+            max_width = max(
+                self._MIN_WIDTH,
+                screen.availableGeometry().width() - (self._SCREEN_MARGIN * 2),
+            )
+
+        metrics = QFontMetrics(self._label.font())
+        single_line_width = (
+            metrics.horizontalAdvance(text)
+            + (self._HORIZONTAL_MARGIN * 2)
+            + self._SHADOW_GUARD
+        )
+        target_width = min(max_width, max(self._MIN_WIDTH, single_line_width))
+
+        should_wrap = single_line_width > max_width
+        self._label.setWordWrap(should_wrap)
+        if should_wrap:
+            wrap_width = max(
+                1,
+                target_width
+                - (self._HORIZONTAL_MARGIN * 2)
+                - self._SHADOW_GUARD,
+            )
+            bounds = metrics.boundingRect(
+                QRect(0, 0, wrap_width, 10000),
+                int(Qt.TextFlag.TextWordWrap | Qt.AlignmentFlag.AlignHCenter),
+                text,
+            )
+            content_height = bounds.height()
+        else:
+            content_height = metrics.height()
+
+        target_height = max(
+            self._MIN_HEIGHT,
+            content_height + (self._VERTICAL_MARGIN * 2) + self._SHADOW_GUARD,
+        )
+        self.setFixedSize(target_width, target_height)
+
     def show_notification(self, text: str, success: bool = True):
         """显示提示文本，停留后自动淡出。
 
@@ -136,6 +193,9 @@ class OsdPopup(QWidget):
         self._label.setStyleSheet(
             f"color: {color}; background: transparent;"
         )
+
+        # 先按实际字体计算完整文本尺寸，再重新居中，避免长脚本名左右被裁掉。
+        self._resize_for_text(text)
 
         # 重置位置（响应屏幕分辨率变化）
         self.update_position()
@@ -167,7 +227,3 @@ class OsdPopup(QWidget):
         x = geo.left() + (geo.width() - self.width()) // 2
         y = geo.top() + self.popup_y
         self.move(x, y)
-
-    def mousePressEvent(self, event):
-        """点击穿透保护：点击OSD不传递给下层窗口。"""
-        event.accept()

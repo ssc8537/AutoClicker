@@ -29,3 +29,7 @@
 优秀案例 1 的触发链直接读取原始 VK 与 XBUTTON down/up，因此触发判定不依赖中文输入法；但案例和本项目发送的物理字母键都会进入目标窗口当前 IME。`hello_world`、`goodbye` 在中文记事本里的可见文字、候选窗和提交节奏不能作为触发正确性的唯一证据，必须同时查看 OSD 运行/停止状态和 `app.log` 成对记录。
 
 Stage 7H 已把键盘/鼠标事件入口改为只过滤本程序 `dwExtraInfo == MAPL` 的输入，并让鼠标从原始 WM_XBUTTON down/up 进入统一 FIFO；不再过滤全部 injected 事件。Stage 9A 修复了真实 pynput 物理事件中空 `c_void_p dwExtraInfo` 为 `None`、旧代码 `int(None)` 导致整个 hook 回调失效的回归；后续真实 Windows 结构测试必须使用 `None`，禁止只用数字 0 假通过。当前仍保留 pynput 的两个 Windows 低级 hook 包装器，并非案例自写的单一原生 hook 线程。若用户在 Stage 9A 后仍能复现“中文状态下侧键漏按下/松开”，必须标记为 `UNKNOWN`，不得继续修改代次、Qt 队列或播放器猜测修复。下一步只能先记录 hook -> FIFO -> 状态机 -> stop 的原始边沿时间、device、VK/XBUTTON、down/up、dwExtraInfo、epoch、generation 和队列长度；确认真实边沿缺失后，才允许把监听入口替换为一个 ctypes `WH_KEYBOARD_LL + WH_MOUSE_LL` 消息线程，并只过滤 `MAPL` 标记。
+
+## 最高指令：游戏输入兼容性证据边界
+
+优秀案例 1 的普通输入与本项目均使用 `wVk + MapVirtualKeyW 扫描码 + SendInput`；案例工程要求管理员权限。本项目正式 EXE 从 Stage 12 起也必须请求管理员权限，并对 `SendInput` 的 0/部分成功限频记录事件、管理员状态和错误码。若日志已经记录宏启动，禁止把“游戏无效果”继续归咎于 hook 或扫描码；先确认管理员权限、游戏前台、宏模式（`down` 必须持续按住）和 SendInput 返回。管理员版返回成功但游戏仍拒绝时标记 `UNKNOWN`，不得擅自复制、安装或建议绕过反作弊的驱动输入；只有用户另行明确授权且完成安全审查，才可研究合法驱动方案。

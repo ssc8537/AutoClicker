@@ -1,4 +1,3 @@
-import json
 import re
 import tempfile
 import unittest
@@ -17,19 +16,19 @@ from src.core.input_keys import (
     display_input_key,
 )
 from src.core.macro_library import validate_macro_source
-from src.ui.ai_prompt_dialog import build_ai_prompt_content
+from src.ui.ai_prompt_dialog import build_ai_prompt_content, load_prompt_template
 
 
 class AiPromptV2Tests(unittest.TestCase):
     def setUp(self):
         self.project_root = Path(__file__).resolve().parents[1]
-        self.default_prompt = self.project_root / "config" / "ai_prompt.default.txt"
+        self.default_prompt = self.project_root / "config" / "ai_prompt.default.md"
 
     def _prompt_root(self, directory: str) -> Path:
         root = Path(directory)
         template = self.default_prompt.read_text(encoding="utf-8")
-        (root / "ai_prompt.default.txt").write_text(template, encoding="utf-8")
-        (root / "ai_prompt.txt").write_text(template, encoding="utf-8")
+        (root / "ai_prompt.default.md").write_text(template, encoding="utf-8")
+        (root / "ai_prompt.md").write_text(template, encoding="utf-8")
         return root
 
     def test_prompt_uses_live_global_key_and_shared_action_mapping(self):
@@ -42,28 +41,21 @@ class AiPromptV2Tests(unittest.TestCase):
 
             prompt = build_ai_prompt_content(config_dir=root).text
 
-            self.assertIn('当前全局启停键：内部值 "f24"；界面显示 "F24"', prompt)
-            self.assertIn('当前名称 "终结技"；物理键内部值 "mouse_forward"', prompt)
-            self.assertIn('player.大招()；也可写 player.按键("终结技")', prompt)
-            self.assertIn('当前名称 "闪避反击"；物理键内部值 "f16"', prompt)
-            self.assertIn('调用 player.按键("闪避反击")', prompt)
+            self.assertIn('**当前全局启停键：** 内部值 `f24`，界面显示 **F24**', prompt)
+            self.assertIn('| `ultimate` | 终结技 | `mouse_forward` |', prompt)
+            self.assertIn('`player.大招()` / `player.按键("终结技")`', prompt)
+            self.assertIn('| `extension_1` | 闪避反击 | `f16` |', prompt)
+            self.assertIn('`player.按键("闪避反击")`', prompt)
 
     def test_prompt_dictionary_tracks_every_supported_key(self):
         with tempfile.TemporaryDirectory() as directory:
             prompt = build_ai_prompt_content(config_dir=self._prompt_root(directory)).text
 
             for key, vk in WINDOWS_VK_BY_KEY.items():
-                expected = (
-                    f"{json.dumps(key, ensure_ascii=False)} -> "
-                    f"{json.dumps(display_input_key(key), ensure_ascii=False)} -> 0x{vk:02X}"
-                )
+                expected = f"| `{key}` | {display_input_key(key)} | `0x{vk:02X}` |"
                 self.assertIn(expected, prompt)
             for hotkey, button in MOUSE_BUTTON_FOR_HOTKEY.items():
-                expected = (
-                    f"{json.dumps(hotkey, ensure_ascii=False)} -> "
-                    f"{json.dumps(display_input_key(hotkey), ensure_ascii=False)} -> "
-                    f"{json.dumps(button, ensure_ascii=False)}"
-                )
+                expected = f"| `{hotkey}` | {display_input_key(hotkey)} | `{button}` |"
                 self.assertIn(expected, prompt)
 
     def test_prompt_documents_complete_real_api_and_boundaries(self):
@@ -78,7 +70,7 @@ class AiPromptV2Tests(unittest.TestCase):
             ):
                 self.assertIn(call, prompt)
             for metadata in ("NAME", "HOTKEY", "MODE", "COUNT", "SPEED", "ENABLED"):
-                self.assertIn(f"{metadata}：", prompt)
+                self.assertIn(f"| `{metadata}` |", prompt)
             for field in (
                 "普通攻击", "战技", "声骸", "大招或共鸣解放", "入场效果",
                 "退场效果", "特殊资源", "增益窗口", "可取消时刻",
@@ -92,7 +84,7 @@ class AiPromptV2Tests(unittest.TestCase):
         template = self.default_prompt.read_text(encoding="utf-8")
         for label in ("A", "B", "C"):
             match = re.search(
-                rf"示例 {label}（[^\n]+）开始\n(?P<source>.*?)\n示例 {label} 结束",
+                rf"### 示例 {label}：[^\n]+\n\n```python\n(?P<source>.*?)\n```",
                 template,
                 flags=re.DOTALL,
             )
@@ -100,8 +92,21 @@ class AiPromptV2Tests(unittest.TestCase):
             validate_macro_source(match.group("source"), filename=f"示例 {label}")
 
     def test_shipped_current_and_default_templates_match(self):
-        current = self.project_root / "config" / "ai_prompt.txt"
+        current = self.project_root / "config" / "ai_prompt.md"
         self.assertEqual(current.read_bytes(), self.default_prompt.read_bytes())
+
+    def test_legacy_txt_is_migrated_without_deleting_user_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            legacy = root / "ai_prompt.txt"
+            legacy.write_text("旧版用户提示词", encoding="utf-8")
+
+            loaded = load_prompt_template(root)
+
+            self.assertEqual(loaded.template, "旧版用户提示词")
+            self.assertEqual((root / "ai_prompt.md").read_text(encoding="utf-8"), loaded.template)
+            self.assertTrue(legacy.exists())
+            self.assertIn("迁移为 Markdown", loaded.notice)
 
 
 if __name__ == "__main__":

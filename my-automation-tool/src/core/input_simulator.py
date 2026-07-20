@@ -10,10 +10,18 @@
     type_string("Hello World")
 """
 import ctypes
+import logging
+import threading
 import time
 from ctypes import wintypes
 
 from src.core.input_keys import is_keyboard_key, normalise_input_key, windows_vk_for_key
+
+
+logger = logging.getLogger(__name__)
+_SEND_INPUT_WARNING_INTERVAL_SECONDS = 5.0
+_send_input_warning_lock = threading.Lock()
+_last_send_input_warning = 0.0
 
 # ── Win32 API 常量和类型 ────────────────────────────────────────────
 
@@ -97,7 +105,40 @@ def _send_input(*inputs: _INPUT) -> int:
     if n == 0:
         return 0
     arr = (_INPUT * n)(*inputs)
-    return ctypes.windll.user32.SendInput(n, arr, ctypes.sizeof(_INPUT))
+    ctypes.windll.kernel32.SetLastError(0)
+    sent = ctypes.windll.user32.SendInput(n, arr, ctypes.sizeof(_INPUT))
+    if sent != n:
+        global _last_send_input_warning
+        now = time.monotonic()
+        with _send_input_warning_lock:
+            should_log = now - _last_send_input_warning >= _SEND_INPUT_WARNING_INTERVAL_SECONDS
+            if should_log:
+                _last_send_input_warning = now
+        if should_log:
+            first = inputs[0]
+            if first.type == INPUT_KEYBOARD:
+                event = (
+                    f"keyboard vk={first.union.ki.wVk} "
+                    f"scan={first.union.ki.wScan} flags={first.union.ki.dwFlags}"
+                )
+            else:
+                event = (
+                    f"mouse data={first.union.mi.mouseData} "
+                    f"flags={first.union.mi.dwFlags}"
+                )
+            try:
+                is_admin = ctypes.windll.shell32.IsUserAnAdmin() != 0
+            except Exception:
+                is_admin = False
+            logger.warning(
+                "SendInput 未完整发送：成功 %d/%d，事件=%s，管理员=%s，WinError=%d",
+                sent,
+                n,
+                event,
+                is_admin,
+                ctypes.windll.kernel32.GetLastError(),
+            )
+    return sent
 
 
 def _make_kb_input(vk: int, flags: int = KEYEVENTF_KEYDOWN) -> _INPUT:

@@ -7,17 +7,18 @@ $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $PSScriptRoot
 Push-Location $projectRoot
 try {
-    if (-not (Test-Path -LiteralPath "assets\myautoplayer-pink.ico")) {
-        throw "缺少用户 EXE/窗口/任务栏图标：assets\myautoplayer-pink.ico"
-    }
-    if (-not (Test-Path -LiteralPath "assets\myautoplayer-tray.ico")) {
-        throw "缺少用户托盘图标：assets\myautoplayer-tray.ico"
+    if (-not (Test-Path -LiteralPath "assets\myautoplayer.ico")) {
+        throw "缺少统一的用户角色图标：assets\myautoplayer.ico"
     }
     python scripts/generate_sound_effects.py
+    $workPath = Join-Path $projectRoot ("build\" + $ReleaseName)
+    $iconPath = Join-Path $projectRoot "assets\myautoplayer.ico"
+    $assetData = (Join-Path $projectRoot "assets") + ";assets"
     $pyInstallerArgs = @(
-        "-m", "PyInstaller", "--noconfirm", "--clean", "--windowed",
-        "--name", $ReleaseName, "--distpath", $DistPath, "--workpath", ("build\" + $ReleaseName), "--icon", "assets\myautoplayer-pink.ico",
-        "--add-data", "assets;assets", "main.py"
+        "-m", "PyInstaller", "--noconfirm", "--clean", "--windowed", "--uac-admin",
+        "--name", $ReleaseName, "--distpath", $DistPath, "--workpath", $workPath,
+        "--specpath", $workPath, "--optimize", "1", "--icon", $iconPath,
+        "--add-data", $assetData, "main.py"
     )
     & python @pyInstallerArgs
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

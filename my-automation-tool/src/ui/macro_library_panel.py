@@ -148,6 +148,7 @@ class MacroLibraryPanel(QWidget):
         self._manager = MacroFileManager(root)
         self._entries: list[MacroEntry] = []
         self._active_path: Path | None = None
+        self._ai_prompt_dialog: AiPromptDialog | None = None
         self._build_ui()
         self._watcher = QFileSystemWatcher(self)
         self._watcher.directoryChanged.connect(self._schedule_refresh)
@@ -362,8 +363,17 @@ class MacroLibraryPanel(QWidget):
     @Slot()
     def _open_ai_prompt_dialog(self) -> None:
         content = self._build_ai_prompt_content()
-        dialog = AiPromptDialog(self, content.text, content.load)
-        dialog.exec()
+        dialog = self._ai_prompt_dialog
+        if dialog is None:
+            dialog = AiPromptDialog(self, content.text, content.load)
+            dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+            dialog.destroyed.connect(lambda *_: setattr(self, "_ai_prompt_dialog", None))
+            self._ai_prompt_dialog = dialog
+        else:
+            dialog.update_prompt(content.text, content.load)
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
 
     def _build_ai_prompt(self) -> str:
         return self._build_ai_prompt_content().text

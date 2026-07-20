@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -9,6 +10,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
+from src.core import input_simulator
 from src.core.global_hotkey import (
     DEFAULT_GLOBAL_HOTKEY,
     load_global_hotkey,
@@ -77,3 +79,15 @@ class Stage7AInputCustomizationTests(unittest.TestCase):
         self.assertEqual(keyboard_input.union.ki.dwExtraInfo, _INPUT_MARKER)
         self.assertNotEqual(keyboard_input.union.ki.wScan, 0)
         self.assertEqual(_make_mouse_input(0x0002).union.mi.dwExtraInfo, _INPUT_MARKER)
+
+    def test_sendinput_failure_is_logged_for_game_compatibility_diagnosis(self):
+        with patch.object(input_simulator, "_last_send_input_warning", 0.0), patch.object(
+            input_simulator.ctypes.windll.user32,
+            "SendInput",
+            return_value=0,
+        ), self.assertLogs("src.core.input_simulator", level="WARNING") as logs:
+            sent = input_simulator._send_input(_make_mouse_input(0x0002))
+            input_simulator._send_input(_make_mouse_input(0x0002))
+        self.assertEqual(sent, 0)
+        self.assertIn("SendInput 未完整发送", "\n".join(logs.output))
+        self.assertEqual(len(logs.output), 1)

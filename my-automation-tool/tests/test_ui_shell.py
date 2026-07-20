@@ -545,8 +545,8 @@ class UiShellTests(unittest.TestCase):
             root = Path(directory)
             prompt_config = root / "prompt_config"
             prompt_config.mkdir()
-            shipped_default = Path(__file__).resolve().parents[1] / "config" / "ai_prompt.default.txt"
-            (prompt_config / "ai_prompt.default.txt").write_text(
+            shipped_default = Path(__file__).resolve().parents[1] / "config" / "ai_prompt.default.md"
+            (prompt_config / "ai_prompt.default.md").write_text(
                 shipped_default.read_text(encoding="utf-8"), encoding="utf-8"
             )
             macro = root / "first.py"
@@ -559,15 +559,15 @@ class UiShellTests(unittest.TestCase):
 
             general_prompt = panel._build_ai_prompt()
             self.assertEqual(
-                (prompt_config / "ai_prompt.txt").read_text(encoding="utf-8"),
-                (prompt_config / "ai_prompt.default.txt").read_text(encoding="utf-8"),
+                (prompt_config / "ai_prompt.md").read_text(encoding="utf-8"),
+                (prompt_config / "ai_prompt.default.md").read_text(encoding="utf-8"),
             )
-            self.assertIn("三、唯一允许使用的 player API", general_prompt)
+            self.assertIn("## 3. 唯一允许使用的 `player` API", general_prompt)
             self.assertIn("player.tap(key, hold_ms=20)", general_prompt)
             self.assertIn("player.sleep(ms)", general_prompt)
             for method in ("切换(1)", "切换(2)", "切换(3)", "战技()", "声骸()", "大招()", "跳跃()", "处决()"):
                 self.assertIn(f"player.{method}", general_prompt)
-            self.assertIn("HOTKEY：一个第十节中的键盘内部值或鼠标触发内部值", general_prompt)
+            self.assertIn("| `HOTKEY` |", general_prompt)
             self.assertIn('player.按键("当前动作名称"', general_prompt)
             for method in ("mouse_click", "mouse_down", "mouse_up", "mouse_repeat"):
                 self.assertIn(f"player.{method}", general_prompt)
@@ -582,30 +582,37 @@ class UiShellTests(unittest.TestCase):
             self.assertIn("至少等待 1080ms", general_prompt)
             self.assertIn("1000ms 和 80ms 余量", general_prompt)
             self.assertIn("项目现有保守等待为 1500ms", general_prompt)
-            self.assertIn("示例 A（按下模式与鼠标动作", general_prompt)
-            self.assertIn("示例 B（切换模式", general_prompt)
-            self.assertIn("示例 C（三角色确定性轮转", general_prompt)
+            self.assertIn("### 示例 A：按下模式与鼠标动作", general_prompt)
+            self.assertIn("### 示例 B：切换模式", general_prompt)
+            self.assertIn("### 示例 C：三角色确定性轮转", general_prompt)
             self.assertIn("当前共享动作映射", general_prompt)
             self.assertIn("完整按键字典", general_prompt)
             self.assertNotIn("小技能", general_prompt)
-            self.assertNotIn("##", general_prompt)
-            self.assertNotIn("```", general_prompt)
-            self.assertNotIn("\n- ", general_prompt)
-            self.assertNotIn("#", general_prompt)
+            self.assertIn("##", general_prompt)
+            self.assertIn("```python", general_prompt)
+            self.assertIn("\n- ", general_prompt)
             self.assertNotIn("BaseChar.py", general_prompt)
 
             panel.table.selectRow(0)
             selected_prompt = panel._build_ai_prompt()
             self.assertIn(source, selected_prompt)
             self.assertIn("# 保留的源码注释", selected_prompt)
-            self.assertNotIn("```python", selected_prompt)
+            self.assertIn("```python", selected_prompt)
             dialog = AiPromptDialog(panel, selected_prompt)
             self.assertTrue(dialog.prompt_editor.isReadOnly())
+            self.assertFalse(dialog.isModal())
+            self.assertEqual(dialog.prompt_editor.textCursor().position(), 0)
             self.assertEqual(dialog.copy_button.text(), "复制提示词")
             dialog.copy_button.click()
             self.assertEqual(QApplication.clipboard().text(), selected_prompt)
             self.assertEqual(dialog.copy_status.text(), "提示词已复制，请粘贴给 AI")
             dialog.deleteLater()
+
+            panel._open_ai_prompt_dialog()
+            self.assertIsNotNone(panel._ai_prompt_dialog)
+            self.assertFalse(panel._ai_prompt_dialog.isModal())
+            self.assertTrue(panel.isEnabled())
+            panel._ai_prompt_dialog.close()
 
             macro.write_text("NAME = 'invalid'\n", encoding="utf-8")
             panel.refresh()
@@ -620,8 +627,8 @@ class UiShellTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             config_dir = Path(directory) / "config"
             config_dir.mkdir()
-            default_path = config_dir / "ai_prompt.default.txt"
-            current_path = config_dir / "ai_prompt.txt"
+            default_path = config_dir / "ai_prompt.default.md"
+            current_path = config_dir / "ai_prompt.md"
             default_text = "默认模板\nplayer.tap(\"R\")\nplayer.sleep(1800)"
             default_path.write_text(default_text, encoding="utf-8")
 

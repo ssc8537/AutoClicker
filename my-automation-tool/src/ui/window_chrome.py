@@ -22,15 +22,13 @@ from src.utils.app_paths import resource_root
 
 def application_icon() -> QIcon:
     """返回用户提供的 EXE、窗口和任务栏角色图标。"""
-    asset_path = resource_root() / "assets" / "myautoplayer-pink.ico"
+    asset_path = resource_root() / "assets" / "myautoplayer.ico"
     return QIcon(str(asset_path))
 
 
 def tray_icon() -> QIcon:
-    """返回用户图标包中为 16–48px 托盘显示单独优化的图标。"""
-    asset_path = resource_root() / "assets" / "myautoplayer-tray.ico"
-    icon = QIcon(str(asset_path))
-    return icon if not icon.isNull() else application_icon()
+    """窗口、任务栏、EXE 和托盘共用同一枚饱满角色图标。"""
+    return application_icon()
 
 
 class WindowTitleBar(QWidget):

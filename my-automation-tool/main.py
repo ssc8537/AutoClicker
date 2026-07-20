@@ -5,7 +5,10 @@ import atexit
 import ctypes
 import sys
 import threading
+import time
 from pathlib import Path
+
+_IMPORT_STARTED_AT = time.perf_counter()
 
 import keyboard
 from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal, Slot
@@ -1041,6 +1044,7 @@ def _activate_startup_window(window: QMainWindow) -> None:
 
 
 def main() -> int:
+    startup_started = _IMPORT_STARTED_AT
     _enable_per_monitor_v2_dpi()
     _set_windows_app_identity()
     instance = SingleInstanceGuard()
@@ -1052,12 +1056,20 @@ def main() -> int:
         logger.info("自动连招启动")
         macro_runtime = PythonMacroRuntime()
         app = QApplication(sys.argv)
+        qt_ready = time.perf_counter()
         app.setApplicationName(_APP_TITLE)
         app.setWindowIcon(application_icon())
         if not _is_admin():
             logger.warning("当前未以管理员权限运行，某些游戏可能无法接收模拟输入")
         window = MainWindow(macro_runtime)
+        window_ready = time.perf_counter()
         show_startup_window(window)
+        logger.info(
+            "启动耗时：导入与 Qt %.0fms，窗口与 hook %.0fms，总计 %.0fms",
+            (qt_ready - startup_started) * 1000,
+            (window_ready - qt_ready) * 1000,
+            (time.perf_counter() - startup_started) * 1000,
+        )
         return app.exec()
     finally:
         instance.release()

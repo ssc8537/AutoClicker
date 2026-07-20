@@ -18,13 +18,14 @@ from src.core.input_keys import (
 )
 from src.utils.app_paths import config_root
 
-from PySide6.QtCore import Slot
+from PySide6.QtCore import Qt, Slot
+from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
     QLabel,
-    QPlainTextEdit,
     QPushButton,
+    QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
@@ -79,70 +80,113 @@ def _quoted(value: str) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
+def _md_cell(value: str) -> str:
+    return value.replace("|", "\\|").replace("\n", " ")
+
+
 def _runtime_reference(config_dir: Path | None = None) -> str:
     """Build the current key contract from code and saved configuration."""
     root = (config_dir or _default_config_dir()).resolve()
     lines = [
-        "九、当前程序设置（每次打开窗口时动态生成）",
+        "## 9. 当前程序设置",
+        "",
+        "> 本节每次打开窗口时由程序动态生成，不会使用过期默认值。",
         "",
     ]
     try:
         global_hotkey = load_global_hotkey(root / "global_hotkey.ini")
         lines.append(
-            "当前全局启停键：内部值 "
-            f"{_quoted(global_hotkey)}；界面显示 {_quoted(display_input_key(global_hotkey))}。"
-            "任何宏 HOTKEY 和快捷连点触发键都不能使用这个键。"
+            "**当前全局启停键：** 内部值 "
+            f"`{global_hotkey}`，界面显示 **{display_input_key(global_hotkey)}**。"
+            "任何宏 `HOTKEY` 和快捷连点触发键都不能使用这个键。"
         )
     except GlobalHotkeyError as exc:
-        lines.append(f"当前全局启停键无法读取：{exc}。不要猜测，请用户在设置页确认。")
+        lines.append(f"> 当前全局启停键无法读取：{exc}。不要猜测，请用户在设置页确认。")
 
-    lines.extend(["", "当前共享动作映射："])
+    lines.extend(
+        [
+            "",
+            "### 当前共享动作映射",
+            "",
+            "| # | 槽位 | 当前名称 | 物理键 | 显示 | 正确调用 |",
+            "|---:|---|---|---|---|---|",
+        ]
+    )
     try:
         keybinds = load_game_keybinds(root / "game_keybinds.ini")
     except GameKeybindError as exc:
-        lines.append(f"当前共享动作配置无法读取：{exc}。不要猜测，请用户在功能页确认。")
+        lines.append(f"| － | 读取失败 | {_md_cell(str(exc))} | － | － | 请用户在功能页确认 |")
     else:
         for index, (slot, _default_label, _default_key) in enumerate(KEYBIND_FIELDS, 1):
             label = keybinds.label_for(slot)
             key = keybinds.key_for(slot)
             stable_call = _STABLE_ACTION_CALLS.get(slot)
-            calls = f"{stable_call}；也可写 " if stable_call else "调用 "
-            calls += f"player.按键({_quoted(label)})"
+            custom_call = f"player.按键({_quoted(label)})"
+            calls = f"`{stable_call}` / `{custom_call}`" if stable_call else f"`{custom_call}`"
             lines.append(
-                f"{index}. 槽位 {slot}；当前名称 {_quoted(label)}；"
-                f"物理键内部值 {_quoted(key)}；界面显示 {_quoted(display_input_key(key))}；{calls}。"
+                f"| {index} | `{slot}` | {_md_cell(label)} | `{key}` | "
+                f"{_md_cell(display_input_key(key))} | {calls} |"
             )
 
     lines.extend(
         [
             "",
-            "十、完整按键字典（由当前源码生成）",
+            "## 10. 完整按键字典",
             "",
-            "键盘键可用于 HOTKEY 和 player.tap；每行依次为内部值、界面显示名、Windows VK：",
+            "键盘键可用于 `HOTKEY` 和 `player.tap()`；本表由当前源码生成。",
+            "",
+            "| 内部值 | 界面显示 | Windows VK |",
+            "|---|---|---:|",
         ]
     )
     for key, vk in WINDOWS_VK_BY_KEY.items():
-        lines.append(
-            f"{_quoted(key)} -> {_quoted(display_input_key(key))} -> 0x{vk:02X}"
-        )
+        lines.append(f"| `{key}` | {_md_cell(display_input_key(key))} | `0x{vk:02X}` |")
     lines.extend(
         [
             "",
-            "鼠标触发键用于 HOTKEY；对应的 player 鼠标 button 名如下：",
+            "### 鼠标键",
+            "",
+            "鼠标触发内部值用于 `HOTKEY`；`button` 名用于 `player.mouse_*()`。",
+            "",
+            "| HOTKEY 内部值 | 界面显示 | player button |",
+            "|---|---|---|",
         ]
     )
     for hotkey, button in MOUSE_BUTTON_FOR_HOTKEY.items():
-        lines.append(
-            f"{_quoted(hotkey)} -> {_quoted(display_input_key(hotkey))} -> {_quoted(button)}"
-        )
+        lines.append(f"| `{hotkey}` | {display_input_key(hotkey)} | `{button}` |")
     return "\n".join(lines)
 
 
 def load_prompt_template(config_dir: Path | None = None) -> PromptTemplateLoad:
     """读取当前模板；只有缺失当前文件时才从默认备份恢复它。"""
     root = (config_dir or _default_config_dir()).resolve()
-    current_path = root / "ai_prompt.txt"
-    default_path = root / "ai_prompt.default.txt"
+    current_path = root / "ai_prompt.md"
+    default_path = root / "ai_prompt.default.md"
+    legacy_current_path = root / "ai_prompt.txt"
+    legacy_default_path = root / "ai_prompt.default.txt"
+    if not current_path.exists() and legacy_current_path.exists():
+        try:
+            legacy_template = _read_utf8(legacy_current_path)
+            current_path.write_text(legacy_template, encoding="utf-8")
+        except (OSError, UnicodeError):
+            pass
+        else:
+            return PromptTemplateLoad(
+                legacy_template,
+                current_path,
+                default_path,
+                "已从旧 TXT 提示词迁移为 Markdown；旧文件未删除。",
+            )
+    if not default_path.exists() and legacy_default_path.exists():
+        try:
+            legacy_default = _read_utf8(legacy_default_path)
+        except (OSError, UnicodeError):
+            legacy_default = None
+        if legacy_default is not None:
+            try:
+                default_path.write_text(legacy_default, encoding="utf-8")
+            except OSError:
+                pass
     try:
         return PromptTemplateLoad(_read_utf8(current_path), current_path, default_path)
     except FileNotFoundError:
@@ -197,13 +241,13 @@ def build_ai_prompt_content(
     runtime_reference = _runtime_reference(config_dir)
     source_section = (
         "以下是已保存的完整 Python 宏源码。源码中的 Python 注释会原样保留。\n\n"
-        + source
+        "```python\n" + source.rstrip() + "\n```"
         if source is not None
         else "当前没有选中有效宏。请先按下面规则让 AI 返回完整文件，再粘贴到编辑器保存。"
     )
     text = (
         f"{load.template.rstrip()}\n\n{runtime_reference}\n\n"
-        f"十一、已保存的宏源码\n\n{source_section}\n"
+        f"## 11. 已保存的宏源码\n\n{source_section}\n"
     )
     return PromptContent(text, load)
 
@@ -224,19 +268,47 @@ class AiPromptDialog(QDialog):
     ):
         super().__init__(parent)
         self.setWindowTitle("AI 提示词")
-        self.setMinimumSize(620, 500)
+        self.setModal(False)
+        self.setWindowModality(Qt.WindowModality.NonModal)
+        self.setMinimumSize(720, 560)
+        self.resize(820, 720)
+        self.setStyleSheet(
+            "QDialog { background: #FCF7FA; color: #5D4050; font-family: 'Microsoft YaHei UI', 'Microsoft YaHei'; font-size: 12px; }"
+            "QTextBrowser { background: #FFFFFF; border: 1px solid #D9A9BD; border-radius: 7px; padding: 8px; selection-background-color: #C984A1; }"
+            "QLabel { color: #6E4055; }"
+            "QPushButton { background: #FAF3F6; border: 1px solid #C984A1; border-radius: 5px; min-height: 28px; padding: 4px 12px; color: #6E4055; font-weight: 600; }"
+            "QPushButton:hover { background: #EFDDE6; border-color: #9B536F; }"
+        )
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("可直接阅读说明，或复制后粘贴给 AI。"))
-        self.prompt_editor = QPlainTextEdit(prompt)
+        heading = QLabel("全知 AI 连招提示词 · 可拖到旁边边看边设置")
+        heading.setStyleSheet("font-size: 16px; font-weight: 700; color: #8F4F68; padding: 4px;")
+        layout.addWidget(heading)
+        self._prompt_markdown = prompt
+        self.prompt_editor = QTextBrowser()
         self.prompt_editor.setObjectName("ai_prompt_text")
         self.prompt_editor.setReadOnly(True)
+        self.prompt_editor.setOpenExternalLinks(False)
+        self.prompt_editor.document().setDefaultStyleSheet(
+            "body { color: #553846; font-family: 'Microsoft YaHei UI'; font-size: 13px; line-height: 1.55; }"
+            "h1 { color: #914F69; border-bottom: 2px solid #E3B7C8; padding-bottom: 6px; }"
+            "h2 { color: #8A5368; background: #FFF3F7; padding: 6px; margin-top: 16px; }"
+            "h3 { color: #6E5260; }"
+            "table { border-collapse: collapse; margin: 8px 0; }"
+            "th { background: #F4DDE7; color: #6E4055; padding: 5px; border: 1px solid #DAB9C6; }"
+            "td { padding: 5px; border: 1px solid #E4CDD6; }"
+            "code { background: #F8EEF2; color: #8B3F61; }"
+            "pre { background: #2F2930; color: #FFF7FA; padding: 10px; }"
+            "blockquote { color: #6D5962; background: #F9F2E9; border-left: 4px solid #E6AE72; padding: 6px; }"
+        )
+        self.prompt_editor.setMarkdown(prompt)
+        self.prompt_editor.moveCursor(QTextCursor.MoveOperation.Start)
         layout.addWidget(self.prompt_editor, 1)
         self.path_info = QLabel("")
         self.path_info.setObjectName("ai_prompt_paths")
         self.path_info.setWordWrap(True)
         if template_load is not None:
             self.path_info.setText(
-                "用记事本修改当前提示词并保存，关闭后重新打开本窗口即可生效。\n"
+                "用记事本修改当前 Markdown 并保存，重新点击 AI 提示词即可刷新。\n"
                 f"当前提示词：{template_load.current_path}\n"
                 f"默认备份：{template_load.default_path}\n"
                 "编辑出错时，请用默认备份人工覆盖当前提示词文件。"
@@ -259,5 +331,19 @@ class AiPromptDialog(QDialog):
 
     @Slot()
     def _copy_prompt(self) -> None:
-        QApplication.clipboard().setText(self.prompt_editor.toPlainText())
+        QApplication.clipboard().setText(self._prompt_markdown)
         self.copy_status.setText("提示词已复制，请粘贴给 AI")
+
+    def update_prompt(self, prompt: str, template_load: PromptTemplateLoad | None = None) -> None:
+        """Refresh the modeless reader without replacing or blocking the main window."""
+        self._prompt_markdown = prompt
+        self.prompt_editor.setMarkdown(prompt)
+        self.prompt_editor.moveCursor(QTextCursor.MoveOperation.Start)
+        if template_load is not None:
+            self.path_info.setText(
+                "用记事本修改当前 Markdown 并保存，重新点击 AI 提示词即可刷新。\n"
+                f"当前提示词：{template_load.current_path}\n"
+                f"默认备份：{template_load.default_path}\n"
+                "编辑出错时，请用默认备份人工覆盖当前提示词文件。"
+            )
+            self.load_status.setText(template_load.notice)
