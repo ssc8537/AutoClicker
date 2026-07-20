@@ -1,4 +1,4 @@
-# 当前交接：Stage 15 与 VV025 已发布
+# 当前交接：Stage 16 已验收，准备发布 VV026
 
 安全回退基线已发布：提交 `6e4caf0`、标签 `VV023-accepted-baseline`、分支 `codex/v021-ui-shell`。根 `PRODUCT_REQUIREMENTS.md` 是全部真实需求，根 `PROJECT_ROADMAP.md` 是唯一阶段路线；历史阶段文档已清理，优秀案例源码、源码、测试、用户宏/config 和视觉源保留。
 
@@ -29,3 +29,9 @@ Stage 15 精修：从用户第 2 张参考图只读裁出 `assets/sakura-gallery
 VV025 发布前证据：全量运行 131 项，124 通过、7 项历史跳过，0 失败；`compileall` 与 `git diff --check` 通过。`SETUP_GUIDE.md` 中显式 `-PythonExe` 加一次性 `-ExecutionPolicy Bypass` 的构建命令已在当前 Windows 11/PowerShell 上真实执行成功，不修改永久执行策略；正式文件夹式管理员 EXE 已重建。案例源码、`build/`、`dist/` 和日志继续由 `.gitignore` 排除；公开文件未检出密钥。远端 `origin/master` 与本地发布基线同为 `5aff3fb`，远端/本地均不存在 `VV025-ui-gallery-release` 标签，可安全普通发布。
 
 发布事实：版本提交 `912b873bbb6c281679465160a84d3608dc491c23`，注释标签 `VV025-ui-gallery-release` 解引用到同一提交；GitHub `origin/master` 已普通快进并实时核验到该提交。当前无既定未完成阶段；后续只响应用户新的明确需求。
+
+Stage 16 新需求：用户明确要求每次打开程序时全局开关直接处于“已启用”，省去手动开启。`HotkeyManager` 初始 `_global_disabled` 已改为 `False`，设置页初始状态同步为“● 热键已启用”；第一下全局键现在禁用，第二下恢复启用。启动只开放已启用宏的触发键，不会自动执行任何宏。用户在本轮开始前另行修改了 3 个宏文件，必须保留且未纳入本轮代码改动。
+
+Stage 16 自动证据：针对性运行 62 项，55 通过、7 项历史跳过；全量运行 132 项，125 通过、7 项历史跳过，0 失败。`compileall` 与 `git diff --check` 通过。转换宏测试不再锁死用户可编辑的 `ENABLED` 值，只核对按键、模式、循环和动作顺序。正式文件夹式管理员 EXE 已重建到 `dist/MyAutoPlayer/MyAutoPlayer.exe`。
+
+用户已明确反馈本轮“完美通过”并要求覆盖 GitHub 主分支。Stage 16 Windows 验收已归档；旧 `CURRENT_ACCEPTANCE.md` 已移除。发布目标为 `VV026-startup-enabled`，包含启动默认启用修复、稳定测试调整、文档更新和用户当前 3 个宏修改；普通推送到默认主干 `master`，禁止强推。

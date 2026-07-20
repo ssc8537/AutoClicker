@@ -36,7 +36,7 @@ class WindowsHookIntegrationTests(unittest.TestCase):
             up.union.ki.dwExtraInfo = 0
             self.assertEqual(_send_input(down, up), 2)
             self.assertTrue(toggled.wait(1.0), f"真实 hook 边沿={edges!r}")
-            self.assertFalse(manager.global_disabled)
+            self.assertTrue(manager.global_disabled)
         finally:
             manager.stop()
 

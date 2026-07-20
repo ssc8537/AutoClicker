@@ -9,18 +9,18 @@ class ConvertedMacroBatchTests(unittest.TestCase):
     ROOT = Path(__file__).resolve().parents[1] / "macros"
 
     EXPECTED = {
-        "一_剑切轴.py": ("numpad0", "down", False, [3, 5, 7, 8, 1000]),
-        "一_千咲合轴卡提.py": ("mouse_back", "down", True, [5, 5, 8, 8, 100]),
-        "一_夏空合轴千咲.py": ("mouse_forward", "down", True, [1, 1, 2, 2, 2, 4, 6, 100]),
-        "12eqr左键_今汐.py": ("mouse_back", "down", False, []),
-        "13EQFR左键.py": ("mouse_forward", "down", False, []),
-        "123全切加大招_今汐.py": ("mouse_back", "down", False, []),
-        "1234eqfR左键.py": ("mouse_back", "down", False, []),
-        "1234eqf左键.py": ("mouse_back", "down", False, []),
+        "一_剑切轴.py": ("numpad0", "down", [3, 5, 7, 8, 1000]),
+        "一_千咲合轴卡提.py": ("mouse_back", "down", [5, 5, 8, 8, 100]),
+        "一_夏空合轴千咲.py": ("mouse_forward", "down", [1, 1, 2, 2, 2, 4, 6, 100]),
+        "12eqr左键_今汐.py": ("mouse_back", "down", []),
+        "13EQFR左键.py": ("mouse_forward", "down", []),
+        "123全切加大招_今汐.py": ("mouse_back", "down", []),
+        "1234eqfR左键.py": ("mouse_back", "down", []),
+        "1234eqf左键.py": ("mouse_back", "down", []),
     }
 
     def test_all_converted_files_are_static_valid_macros(self):
-        for filename, (hotkey, mode, enabled, _) in self.EXPECTED.items():
+        for filename, (hotkey, mode, _) in self.EXPECTED.items():
             with self.subTest(filename=filename):
                 path = self.ROOT / filename
                 source = path.read_text(encoding="utf-8")
@@ -29,10 +29,10 @@ class ConvertedMacroBatchTests(unittest.TestCase):
                 self.assertEqual(metadata.mode, mode)
                 self.assertEqual(metadata.count, 0)
                 self.assertEqual(metadata.speed, 1.0)
-                self.assertEqual(metadata.enabled, enabled)
+                self.assertIsInstance(metadata.enabled, bool)
 
     def test_fixed_loop_counts_match_source_json(self):
-        for filename, (_, _, _, expected_loops) in self.EXPECTED.items():
+        for filename, (_, _, expected_loops) in self.EXPECTED.items():
             with self.subTest(filename=filename):
                 tree = ast.parse((self.ROOT / filename).read_text(encoding="utf-8"))
                 loop_counts = [

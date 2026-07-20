@@ -334,7 +334,7 @@ class UiShellTests(unittest.TestCase):
         status = self.window.findChild(QLabel, "global_status_label")
         self.assertIsNotNone(osd)
         self.assertEqual(osd.text(), "显示 OSD 屏幕提示")
-        self.assertTrue(status.text().startswith("● "))
+        self.assertEqual(status.text(), "● 热键已启用")
 
     def test_mature_rose_theme_is_applied(self):
         stylesheet = self.window.styleSheet()

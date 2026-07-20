@@ -6,6 +6,11 @@ from src.core.input_simulator import INPUT_EVENT_MARKER
 
 
 class HotkeyManagerTests(unittest.TestCase):
+    def test_global_automation_is_enabled_by_default(self):
+        manager = HotkeyManager()
+        self.assertFalse(manager.global_disabled)
+        self.assertTrue(manager.toggle_global_disabled())
+
     def make_handler(self, mode, stop_on_release=True):
         started = []
         stopped = []

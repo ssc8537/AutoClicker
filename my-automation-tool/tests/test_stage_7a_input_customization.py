@@ -69,10 +69,10 @@ class Stage7AInputCustomizationTests(unittest.TestCase):
     def test_mouse_global_key_toggles_without_any_macro_binding(self):
         manager = HotkeyManager()
         manager.set_global_disable_key("mouse_back")
-        self.assertTrue(manager.global_disabled)
+        self.assertFalse(manager.global_disabled)
         manager._on_global_disable_pressed(True)
         manager._on_global_disable_pressed(False)
-        self.assertFalse(manager.global_disabled)
+        self.assertTrue(manager.global_disabled)
 
     def test_all_sendinput_events_carry_the_project_marker(self):
         keyboard_input = _make_kb_input(0x41)

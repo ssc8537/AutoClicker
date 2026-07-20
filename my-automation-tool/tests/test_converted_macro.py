@@ -14,7 +14,7 @@ class ConvertedMacroTests(unittest.TestCase):
         self.assertEqual(metadata.hotkey, "mouse_back")
         self.assertEqual(metadata.mode, "down")
         self.assertEqual(metadata.count, 0)
-        self.assertFalse(metadata.enabled)
+        self.assertIsInstance(metadata.enabled, bool)
         for name in ("秧秧", "琳奈", "千咲"):
             self.assertIn(name, source)
         for wrong_name in ("卡提", "夏空", "千笑"):

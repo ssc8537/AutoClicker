@@ -1090,10 +1090,12 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(40, 28, 90, 28)
         layout.setHorizontalSpacing(28)
         layout.setVerticalSpacing(16)
-        self._status_label = QLabel("● 热键已禁用")
+        self._status_label = QLabel("● 热键已启用")
         self._status_label.setObjectName("global_status_label")
         self._status_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        self._status_label.setStyleSheet("font-size: 20px; color: red; font-weight: bold;")
+        self._status_label.setStyleSheet(
+            "font-size: 20px; color: #6E4055; font-weight: 600;"
+        )
         layout.addRow("当前状态", self._status_label)
         self._global_hotkey_field = TriggerKeyEdit()
         self._global_hotkey_field.setObjectName("global_hotkey_field")
@@ -1154,7 +1156,10 @@ class MainWindow(QMainWindow):
         self._hotkey_mgr.start()
         self._configure_independent_hotkeys()
         self._configure_quick_click_hotkey()
-        logger.info("宏触发已就绪：每个启用宏使用自己的按键，全局键=%s", self._global_hotkey)
+        logger.info(
+            "宏触发已就绪：启动默认启用，每个启用宏使用自己的按键，全局键=%s",
+            self._global_hotkey,
+        )
 
     def closeEvent(self, event) -> None:
         logger.info("程序退出")

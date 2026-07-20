@@ -55,7 +55,9 @@ class HotkeyManager:
         # binding 被禁用、改键或重建后也不能把代次重置为 0。调度器会用代次
         # 拒绝“松开后才到达”的旧启动；代次倒退会把新启动误判成旧事件。
         self._generation_floor_by_id: dict[str, int] = {}
-        self._global_disabled = True
+        # 用户要求每次启动即可使用宏触发键；启动不会自动执行任何宏，
+        # 只有后续真实按下某个已启用宏的绑定键才会运行。
+        self._global_disabled = False
         self._global_disable_key: str | None = None
         self._global_disable_callback = None
         self._on_toggle_callbacks: list[callable] = []
