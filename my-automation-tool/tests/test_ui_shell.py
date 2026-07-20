@@ -16,23 +16,36 @@ from PySide6.QtWidgets import (
     QComboBox,
     QGroupBox,
     QLineEdit,
+    QListWidget,
     QMainWindow,
     QMessageBox,
     QPushButton,
     QScrollArea,
     QTabWidget,
     QTableWidget,
+    QTableWidgetItem,
     QStyle,
+    QStyleOptionViewItem,
     QStyleOptionSpinBox,
     QHBoxLayout,
     QVBoxLayout,
     QWidget,
 )
 from PySide6.QtCore import QPoint, Qt
+from PySide6.QtGui import QColor
 from PySide6.QtTest import QTest
 from src.ui.ai_prompt_dialog import AiPromptDialog, build_ai_prompt_content, load_prompt_template
 from src.ui.macro_library_panel import MacroEditorDialog, MacroLibraryPanel
 from src.ui.game_keybinds_panel import GameKeybindsPanel
+from src.ui.appearance import (
+    AppearanceSettings,
+    AppearanceSettingsStore,
+    CLASSIC_LAYOUT,
+    CLASSIC_THEME,
+    GALLERY_LAYOUT,
+    SAKURA_THEME,
+)
+from src.ui.table_selection import PreserveForegroundSelectionDelegate
 from src.ui.window_chrome import VerticalResizeHandle, WindowTitleBar
 from src.core.macro_file_manager import MacroFileError
 from src.core.hotkey_manager import TriggerMode
@@ -50,18 +63,24 @@ class UiShellTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
     def setUp(self):
+        self.appearance_directory = tempfile.TemporaryDirectory()
         self.window = MainWindow.__new__(MainWindow)
         QMainWindow.__init__(self.window)
+        self.window._appearance_store = AppearanceSettingsStore(
+            Path(self.appearance_directory.name) / "settings.json"
+        )
+        self.window._appearance = AppearanceSettings()
         self.window._setup_ui()
 
     def tearDown(self):
         self.window.deleteLater()
+        self.appearance_directory.cleanup()
 
     def test_window_is_fixed_width_and_vertically_resizable(self):
         self.assertFalse(self.window.windowIcon().isNull())
         self.assertEqual(self.window.width(), 642)
         self.assertEqual(self.window.minimumWidth(), 642)
-        self.assertEqual(self.window.maximumWidth(), 642)
+        self.assertGreater(self.window.maximumWidth(), 642)
         self.assertEqual(self.window.minimumHeight(), 510)
         self.assertGreaterEqual(self.window.maximumHeight(), 510)
         screen = QApplication.primaryScreen()
@@ -83,6 +102,26 @@ class UiShellTests(unittest.TestCase):
         self.assertGreater(self.window.height(), original_height)
         self.assertEqual(self.window.width(), original_width)
 
+    def test_right_edge_resize_handle_changes_window_width(self):
+        self.window.show()
+        resize_handle = self.window.findChild(QWidget, "window_resize_right")
+        self.assertIsNotNone(resize_handle)
+        original_width = self.window.width()
+        original_height = self.window.height()
+        QTest.mousePress(
+            resize_handle,
+            Qt.MouseButton.LeftButton,
+            pos=resize_handle.rect().center(),
+        )
+        QTest.mouseMove(resize_handle, resize_handle.rect().center() + QPoint(48, 0))
+        QTest.mouseRelease(
+            resize_handle,
+            Qt.MouseButton.LeftButton,
+            pos=resize_handle.rect().center() + QPoint(48, 0),
+        )
+        self.assertGreater(self.window.width(), original_width)
+        self.assertEqual(self.window.height(), original_height)
+
     def test_four_tabs_default_to_macro_library(self):
         tabs = self.window.findChild(QTabWidget, "main_tabs")
         self.assertIsNotNone(tabs)
@@ -96,6 +135,10 @@ class UiShellTests(unittest.TestCase):
         self.assertGreater(table.columnWidth(1), table.columnWidth(2))
         self.assertGreater(table.columnWidth(1), table.columnWidth(4))
         self.assertEqual(table.columnWidth(4), 44)
+        self.assertEqual(
+            table.horizontalHeader().sectionResizeMode(1),
+            table.horizontalHeader().ResizeMode.Stretch,
+        )
         titles = {group.title() for group in self.window.findChildren(QGroupBox)}
         self.assertIn("触发详情（自动保存）", titles)
 
@@ -297,6 +340,76 @@ class UiShellTests(unittest.TestCase):
         stylesheet = self.window.styleSheet()
         for color in ("#FCF7FA", "#C984A1", "#6E4055", "#D8D0D6"):
             self.assertIn(color, stylesheet)
+
+    def test_macro_sequence_numbers_are_centered(self):
+        table = self.window.findChild(QTableWidget, "macro_library_table")
+        self.assertEqual(
+            table.horizontalHeader().defaultAlignment(), Qt.AlignmentFlag.AlignCenter
+        )
+        self.assertGreater(table.rowCount(), 0)
+        self.assertEqual(
+            table.item(0, 0).textAlignment(), int(Qt.AlignmentFlag.AlignCenter)
+        )
+
+    def test_theme_and_layout_switch_independently_and_restore_classic(self):
+        theme = self.window.findChild(QComboBox, "theme_selector")
+        layout = self.window.findChild(QComboBox, "layout_selector")
+        side_panel = self.window.findChild(QWidget, "side_panel")
+        side_navigation = self.window.findChild(QListWidget, "side_navigation")
+        self.assertEqual(theme.currentData(), CLASSIC_THEME)
+        self.assertEqual(layout.currentData(), CLASSIC_LAYOUT)
+
+        theme.setCurrentIndex(theme.findData(SAKURA_THEME))
+        self.app.processEvents()
+        self.assertIn("#F3A8BE", self.window.styleSheet())
+        self.assertEqual(self.window.width(), 642)
+
+        layout.setCurrentIndex(layout.findData(GALLERY_LAYOUT))
+        self.app.processEvents()
+        self.assertEqual(
+            self.window.width(),
+            min(840, self.app.primaryScreen().availableGeometry().width()),
+        )
+        self.assertLessEqual(side_panel.width(), 108)
+        self.assertFalse(side_panel.isHidden())
+        self.assertTrue(self.window._tabs.tabBar().isHidden())
+        self.assertTrue(
+            all(
+                side_navigation.item(index).textAlignment()
+                == Qt.AlignmentFlag.AlignCenter
+                for index in range(side_navigation.count())
+            )
+        )
+        avatar = self.window.findChild(QLabel, "gallery_avatar")
+        self.assertIsNotNone(avatar.pixmap())
+        self.assertFalse(avatar.pixmap().isNull())
+
+        self.window.findChild(QPushButton, "restore_classic_appearance").click()
+        self.app.processEvents()
+        self.assertEqual(theme.currentData(), CLASSIC_THEME)
+        self.assertEqual(layout.currentData(), CLASSIC_LAYOUT)
+        self.assertEqual(self.window.width(), 642)
+        self.assertTrue(side_panel.isHidden())
+        self.assertFalse(self.window._tabs.tabBar().isHidden())
+
+    def test_selected_table_item_keeps_its_own_foreground_color(self):
+        table = QTableWidget(1, 1)
+        delegate = PreserveForegroundSelectionDelegate(table)
+        item = QTableWidgetItem("禁用")
+        item.setForeground(QColor("#d43131"))
+        table.setItem(0, 0, item)
+        option = QStyleOptionViewItem()
+        option.state = QStyle.StateFlag.State_Selected
+        prepared = delegate.option_for_index(option, table.model().index(0, 0))
+        self.assertEqual(
+            prepared.palette.highlightedText().color().name(), "#d43131"
+        )
+        plain_item = QTableWidgetItem("普通文字")
+        table.setItem(0, 0, plain_item)
+        plain = delegate.option_for_index(option, table.model().index(0, 0))
+        self.assertEqual(
+            plain.palette.highlightedText().color(), plain.palette.text().color()
+        )
 
     @unittest.skip("Stage 6B 每个已启用宏均注册自己的触发键")
     def test_complete_window_registers_only_f9_and_f12(self):

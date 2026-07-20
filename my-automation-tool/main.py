@@ -12,6 +12,7 @@ _IMPORT_STARTED_AT = time.perf_counter()
 
 import keyboard
 from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal, Slot
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
@@ -20,9 +21,11 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QGridLayout,
     QGroupBox,
+    QHeaderView,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
     QMainWindow,
     QMessageBox,
     QPushButton,
@@ -57,10 +60,22 @@ from src.core.quick_click import (
     QuickClickSettingsStore,
 )
 from src.ui.macro_library_panel import MacroLibraryPanel
+from src.ui.appearance import (
+    AppearanceSettings,
+    AppearanceSettingsStore,
+    CLASSIC_LAYOUT,
+    CLASSIC_THEME,
+    GALLERY_LAYOUT,
+    LAYOUT_OPTIONS,
+    SAKURA_THEME,
+    THEME_OPTIONS,
+    stylesheet_for,
+)
 from src.ui.game_keybinds_panel import GameKeybindsPanel
 from src.ui.osd_window import OsdPopup
 from src.ui.window_chrome import (
     VerticalResizeHandle,
+    WindowResizeHandle,
     WindowChromeController,
     WindowTitleBar,
     application_icon,
@@ -68,6 +83,7 @@ from src.ui.window_chrome import (
 from src.ui.trigger_key_edit import TriggerKeyEdit, display_hotkey
 from src.ui.rose_spin_box import RoseDoubleSpinBox, RoseSpinBox
 from src.ui.sound_effects import SoundEffects
+from src.ui.table_selection import PreserveForegroundSelectionDelegate
 from src.utils.app_paths import macro_root, resource_root
 from src.utils.logger import get_logger, setup_logging
 from src.utils.single_instance import SingleInstanceGuard, show_already_running_message
@@ -322,6 +338,8 @@ class MainWindow(QMainWindow):
             on_finished=self._on_quick_click_finished
         )
         self._quick_click_controller.configure(self._quick_click_settings)
+        self._appearance_store = AppearanceSettingsStore()
+        self._appearance = self._appearance_store.load()
         self._focus_sound_played = False
         self._global_hotkey = self._load_global_hotkey()
         self._setup_ui()
@@ -347,7 +365,12 @@ class MainWindow(QMainWindow):
             self._quick_click_controller.configure(self._quick_click_settings)
         if not hasattr(self, "_osd_popup"):
             self._osd_popup = OsdPopup(None)
-        self.setFixedWidth(642)
+        if not hasattr(self, "_appearance_store"):
+            self._appearance_store = AppearanceSettingsStore()
+        if not hasattr(self, "_appearance"):
+            # 直接调用 _setup_ui 的离屏测试使用可靠的经典默认值。
+            self._appearance = AppearanceSettings()
+        self.setMinimumWidth(642)
         self.setWindowIcon(application_icon())
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window
@@ -356,18 +379,97 @@ class MainWindow(QMainWindow):
         screen = QApplication.primaryScreen()
         if screen is not None:
             self.setMaximumHeight(screen.availableGeometry().height())
+            self.setMaximumWidth(screen.availableGeometry().width())
         self.resize(642, 510)
 
         central_widget = QWidget()
         central_widget.setObjectName("app_surface")
         self.setCentralWidget(central_widget)
-        layout = QVBoxLayout(central_widget)
+        resize_layout = QGridLayout(central_widget)
+        resize_layout.setContentsMargins(0, 0, 0, 0)
+        resize_layout.setSpacing(0)
+        body = QWidget()
+        body.setObjectName("window_body")
+        layout = QVBoxLayout(body)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
+
+        self._resize_handles = {
+            "top_left": WindowResizeHandle(
+                self, Qt.Edge.TopEdge | Qt.Edge.LeftEdge, "window_resize_top_left"
+            ),
+            "top": WindowResizeHandle(self, Qt.Edge.TopEdge, "window_resize_top"),
+            "top_right": WindowResizeHandle(
+                self, Qt.Edge.TopEdge | Qt.Edge.RightEdge, "window_resize_top_right"
+            ),
+            "left": WindowResizeHandle(self, Qt.Edge.LeftEdge, "window_resize_left"),
+            "right": WindowResizeHandle(self, Qt.Edge.RightEdge, "window_resize_right"),
+            "bottom_left": WindowResizeHandle(
+                self, Qt.Edge.BottomEdge | Qt.Edge.LeftEdge, "window_resize_bottom_left"
+            ),
+            "bottom": VerticalResizeHandle(self),
+            "bottom_right": WindowResizeHandle(
+                self, Qt.Edge.BottomEdge | Qt.Edge.RightEdge, "window_resize_bottom_right"
+            ),
+        }
+        resize_layout.addWidget(self._resize_handles["top_left"], 0, 0)
+        resize_layout.addWidget(self._resize_handles["top"], 0, 1)
+        resize_layout.addWidget(self._resize_handles["top_right"], 0, 2)
+        resize_layout.addWidget(self._resize_handles["left"], 1, 0)
+        resize_layout.addWidget(body, 1, 1)
+        resize_layout.addWidget(self._resize_handles["right"], 1, 2)
+        resize_layout.addWidget(self._resize_handles["bottom_left"], 2, 0)
+        resize_layout.addWidget(self._resize_handles["bottom"], 2, 1)
+        resize_layout.addWidget(self._resize_handles["bottom_right"], 2, 2)
+        resize_layout.setRowStretch(1, 1)
+        resize_layout.setColumnStretch(1, 1)
 
         self._title_bar = WindowTitleBar(central_widget)
         self._window_chrome = WindowChromeController(self)
         layout.addWidget(self._title_bar)
+
+        content_shell = QWidget()
+        content_shell.setObjectName("content_shell")
+        content_layout = QHBoxLayout(content_shell)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(0)
+        side_panel = QWidget()
+        side_panel.setObjectName("side_panel")
+        side_panel.setFixedWidth(108)
+        side_layout = QVBoxLayout(side_panel)
+        side_layout.setContentsMargins(6, 8, 6, 8)
+        side_layout.setSpacing(6)
+        avatar = QLabel()
+        avatar.setObjectName("gallery_avatar")
+        avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        avatar.setFixedHeight(72)
+        avatar_pixmap = QPixmap(
+            str(resource_root() / "assets" / "sakura-gallery-avatar.png")
+        )
+        if not avatar_pixmap.isNull():
+            avatar.setPixmap(
+                avatar_pixmap.scaled(
+                    68,
+                    68,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+            )
+        side_layout.addWidget(avatar)
+        gallery_title = QLabel("樱空画册")
+        gallery_title.setObjectName("gallery_title")
+        gallery_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        side_layout.addWidget(gallery_title)
+        side_navigation = QListWidget()
+        side_navigation.setObjectName("side_navigation")
+        side_navigation.addItems(["宏库", "触发", "功能", "设置"])
+        for index in range(side_navigation.count()):
+            side_navigation.item(index).setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        side_navigation.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        side_navigation.setCurrentRow(0)
+        side_layout.addWidget(side_navigation, 1)
+        side_panel.hide()
+        content_layout.addWidget(side_panel)
 
         tabs = QTabWidget()
         tabs.setObjectName("main_tabs")
@@ -377,43 +479,20 @@ class MainWindow(QMainWindow):
         tabs.addTab(self._build_trigger_page(), "触发")
         tabs.addTab(self._build_features_page(), "功能")
         tabs.addTab(self._build_settings_page(), "设置")
-        layout.addWidget(tabs, 1)
-        self._vertical_resize_handle = VerticalResizeHandle(self)
-        layout.addWidget(self._vertical_resize_handle)
+        content_layout.addWidget(tabs, 1)
+        layout.addWidget(content_shell, 1)
+        self._vertical_resize_handle = self._resize_handles["bottom"]
         self._tabs = tabs
+        self._content_shell = content_shell
+        self._content_layout = content_layout
+        self._side_panel = side_panel
+        self._side_navigation = side_navigation
+        self._gallery_avatar = avatar
+        side_navigation.currentRowChanged.connect(tabs.setCurrentIndex)
+        tabs.currentChanged.connect(side_navigation.setCurrentRow)
         self._window_chrome.install(self._title_bar)
         self._on_macro_entries_changed(self._macro_panel.entries)
-        stylesheet = """
-            QMainWindow, QWidget { background: #FCF7FA; color: #6E4055; font-family: "Microsoft YaHei UI", "Microsoft YaHei"; font-size: 12px; }
-            QWidget#app_surface { border: 1px solid #D9A56C; border-radius: 2px; }
-            QWidget#window_title_bar { background: #F8F0F4; border: 1px solid #E1C7A3; border-bottom: 1px solid #D9A56C; }
-            QLabel#window_title_label { color: #6E4055; font-size: 15px; font-weight: 600; letter-spacing: 0.3px; }
-            QToolButton#window_hide_button, QToolButton#window_minimize_button, QToolButton#window_close_button { background: #FCF7FA; border: 1px solid #D8D0D6; border-radius: 13px; color: #6E4055; font-weight: 600; }
-            QToolButton#window_close_button { color: #9B536F; border-color: #C984A1; }
-            QToolButton#window_hide_button:hover, QToolButton#window_minimize_button:hover { background: #F1E2E9; border-color: #C984A1; }
-            QToolButton#window_close_button:hover { background: #C984A1; color: #FFFFFF; }
-            QWidget#vertical_resize_handle { background: #F8F0F4; border-top: 1px solid #D8D0D6; }
-            QTabWidget::pane { background: #FCF7FA; border: 1px solid #E1C7A3; border-top: none; }
-            QTabBar::tab { background: #F5EAF0; min-width: 160px; max-width: 160px; height: 40px; padding: 0; color: #6E4055; font-size: 16px; font-weight: 600; border-right: 1px solid #E4D9DF; }
-            QTabBar::tab:hover { background: #F0E0E8; color: #6E4055; }
-            QTabBar::tab:selected { background: #FCF7FA; color: #9B536F; border-top: 2px solid #C984A1; }
-            QGroupBox { background: #FFFFFF; border: 1px solid #E1C7A3; border-radius: 6px; margin-top: 11px; padding: 11px 8px 8px; font-weight: 600; }
-            QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; color: #6E4055; background: #FFFFFF; }
-            QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox { background: #FFFFFF; border: 1px solid #D8D0D6; border-radius: 4px; padding: 4px; min-height: 22px; selection-background-color: #C984A1; selection-color: #FFFFFF; }
-            QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus { border: 1px solid #C984A1; background: #FFFDFE; }
-            QSpinBox::up-button, QDoubleSpinBox::up-button { subcontrol-origin: border; subcontrol-position: top right; width: 20px; background: #F8F0F4; border-left: 1px solid #D8D0D6; border-bottom: 1px solid #D8D0D6; }
-            QSpinBox::down-button, QDoubleSpinBox::down-button { subcontrol-origin: border; subcontrol-position: bottom right; width: 20px; background: #F8F0F4; border-left: 1px solid #D8D0D6; }
-            QSpinBox::up-button:hover, QSpinBox::down-button:hover, QDoubleSpinBox::up-button:hover, QDoubleSpinBox::down-button:hover { background: #EFDDE6; }
-            QComboBox::drop-down { border: none; width: 20px; } QComboBox QAbstractItemView { background: #FFFFFF; border: 1px solid #D8D0D6; selection-background-color: #F1E2E9; selection-color: #6E4055; }
-            QTableWidget { background: #FFFFFF; alternate-background-color: #FCF7FA; border: 1px solid #D8D0D6; gridline-color: #EEE5E9; selection-background-color: #EAF7FD; selection-color: #6E4055; }
-            QTableWidget::item:hover, QTableWidget::item:selected { background: #EAF7FD; }
-            QHeaderView::section { background: #F8F0F4; border: none; border-bottom: 1px solid #D8D0D6; padding: 6px; color: #6E4055; font-weight: 600; }
-            QPushButton { background: #FAF3F6; border: 1px solid #C984A1; border-radius: 4px; min-height: 26px; padding: 4px 10px; color: #6E4055; font-weight: 600; }
-            QPushButton:hover:!disabled { background: #EFDDE6; border-color: #9B536F; } QPushButton:pressed:!disabled { background: #D9A9BD; color: #FFFFFF; }
-            QPushButton:disabled, QCheckBox:disabled, QComboBox:disabled, QLineEdit:disabled { color: #9A858F; background: #F3EDF0; border-color: #E1D8DD; }
-            QScrollArea { border: none; background: #FCF7FA; } QScrollBar:vertical { background: #F3EDF0; width: 8px; margin: 2px; } QScrollBar::handle:vertical { background: #CDB7C1; border-radius: 4px; min-height: 24px; } QScrollBar::handle:vertical:hover { background: #C984A1; }
-            """
-        self.setStyleSheet(stylesheet)
+        self._apply_appearance(fit_layout=True)
         self._center_on_screen()
 
     def _center_on_screen(self) -> None:
@@ -423,6 +502,84 @@ class MainWindow(QMainWindow):
         frame = self.frameGeometry()
         frame.moveCenter(screen.availableGeometry().center())
         self.move(frame.topLeft())
+
+    @staticmethod
+    def _select_combo_data(combo: QComboBox, value: str) -> None:
+        index = combo.findData(value)
+        if index >= 0:
+            combo.setCurrentIndex(index)
+
+    def _apply_appearance(
+        self, *, persist: bool = False, fit_layout: bool = False
+    ) -> None:
+        """主题只改颜色，布局只改排版；两者可任意组合。"""
+        self.setStyleSheet(stylesheet_for(self._appearance.theme))
+        gallery = self._appearance.layout == GALLERY_LAYOUT
+        self._side_panel.setVisible(gallery)
+        self._tabs.tabBar().setVisible(not gallery)
+        margins = (8, 8, 8, 8) if gallery else (0, 0, 0, 0)
+        self._content_layout.setContentsMargins(*margins)
+        self._content_layout.setSpacing(8 if gallery else 0)
+        self.setMinimumWidth(760 if gallery else 642)
+        if fit_layout:
+            self.resize(840 if gallery else 642, self.height())
+        if hasattr(self, "_trigger_detail"):
+            self._trigger_detail.setFixedWidth(140 if gallery else 134)
+        if hasattr(self, "_trigger_table"):
+            widths = (40, 76, 68, 54) if gallery else (38, 70, 62, 44)
+            for column, width in zip((0, 2, 3, 4), widths):
+                self._trigger_table.setColumnWidth(column, width)
+        if hasattr(self, "_theme_selector"):
+            self._theme_selector.blockSignals(True)
+            self._select_combo_data(self._theme_selector, self._appearance.theme)
+            self._theme_selector.blockSignals(False)
+        if hasattr(self, "_layout_selector"):
+            self._layout_selector.blockSignals(True)
+            self._select_combo_data(self._layout_selector, self._appearance.layout)
+            self._layout_selector.blockSignals(False)
+        self._update_appearance_description()
+        if persist:
+            try:
+                self._appearance_store.save(self._appearance)
+            except OSError as exc:
+                logger.warning("外观设置保存失败：%s", exc)
+            self._center_on_screen()
+
+    def _update_appearance_description(self) -> None:
+        if not hasattr(self, "_appearance_description"):
+            return
+        theme_text = (
+            "樱花粉、天空蓝、薄荷绿和淡桃橙的轻盈卡片配色"
+            if self._appearance.theme == SAKURA_THEME
+            else "项目最初的 Candy 粉红配色"
+        )
+        layout_text = (
+            "左侧导航、宽窗口与更充足留白"
+            if self._appearance.layout == GALLERY_LAYOUT
+            else "原始窄窗口与顶部四标签"
+        )
+        self._appearance_description.setText(
+            f"当前：{theme_text}；{layout_text}。主题与布局可独立搭配。"
+        )
+
+    @Slot()
+    def _on_appearance_changed(self) -> None:
+        previous_layout = self._appearance.layout
+        theme = self._theme_selector.currentData()
+        layout = self._layout_selector.currentData()
+        if not isinstance(theme, str) or not isinstance(layout, str):
+            return
+        self._appearance = AppearanceSettings(theme=theme, layout=layout)
+        self._apply_appearance(
+            persist=True, fit_layout=layout != previous_layout
+        )
+
+    @Slot()
+    def _restore_classic_appearance(self) -> None:
+        self._appearance = AppearanceSettings(
+            theme=CLASSIC_THEME, layout=CLASSIC_LAYOUT
+        )
+        self._apply_appearance(persist=True, fit_layout=True)
 
     @staticmethod
     def _readonly_field(value: str) -> QLineEdit:
@@ -478,21 +635,23 @@ class MainWindow(QMainWindow):
         table.setHorizontalHeaderLabels(["序号", "名称", "按键", "模式", "状态"])
         table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        table.setItemDelegate(PreserveForegroundSelectionDelegate(table))
         table.setAlternatingRowColors(True)
         table.verticalHeader().setVisible(False)
         table.horizontalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
-        table.horizontalHeader().setStretchLastSection(True)
+        header = table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
         table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        # 窗口宽度固定，前三列必须为“状态”列保留最小宽度；否则 Qt 会在
-        # 选中单元格时自动横向滚动，导致最左侧“名称”列被挤出可见区域。
+        # 名称列自动使用窗口增加的宽度，其余列保持紧凑并完整可见。
         table.setColumnWidth(0, 38)
-        # 左表在 642 固定宽窗口中可用 472px；列宽相加刚好填满，
-        # 状态右侧不再留下空白，并优先给长宏名称空间。
-        table.setColumnWidth(1, 258)
         table.setColumnWidth(2, 70)
         table.setColumnWidth(3, 62)
         table.setColumnWidth(4, 44)
-        table.horizontalHeader().setStretchLastSection(False)
+        header.setStretchLastSection(False)
         table.itemSelectionChanged.connect(self._show_selected_trigger_detail)
         table.cellClicked.connect(self._on_trigger_cell_clicked)
         self._trigger_table = table
@@ -501,6 +660,7 @@ class MainWindow(QMainWindow):
         detail = QGroupBox("触发详情（自动保存）")
         # 主窗口为固定宽度；固定右栏才能保证左侧四列表不会被内容建议尺寸挤压。
         detail.setFixedWidth(134)
+        self._trigger_detail = detail
         form = QVBoxLayout(detail)
         form.setContentsMargins(7, 10, 7, 7)
         form.setSpacing(3)
@@ -949,12 +1109,39 @@ class MainWindow(QMainWindow):
         self._sound_enabled_field.setChecked(self._sound_effects.enabled)
         self._sound_enabled_field.toggled.connect(self._sound_effects.set_enabled)
         layout.addRow("提示音", self._sound_enabled_field)
-        layout.addRow("主题", self._readonly_field("Candy 粉红主题（固定）"))
+        self._theme_selector = QComboBox()
+        self._theme_selector.setObjectName("theme_selector")
+        for label, value in THEME_OPTIONS:
+            self._theme_selector.addItem(label, value)
+        self._select_combo_data(self._theme_selector, self._appearance.theme)
+        layout.addRow("主题", self._theme_selector)
+        self._layout_selector = QComboBox()
+        self._layout_selector.setObjectName("layout_selector")
+        for label, value in LAYOUT_OPTIONS:
+            self._layout_selector.addItem(label, value)
+        self._select_combo_data(self._layout_selector, self._appearance.layout)
+        layout.addRow("界面布局", self._layout_selector)
+        self._appearance_description = QLabel()
+        self._appearance_description.setObjectName("appearance_description")
+        self._appearance_description.setWordWrap(True)
+        layout.addRow("外观说明", self._appearance_description)
+        self._restore_appearance_button = QPushButton("恢复经典外观")
+        self._restore_appearance_button.setObjectName("restore_classic_appearance")
+        self._restore_appearance_button.setToolTip(
+            "一次恢复经典粉红主题和经典顶部标签"
+        )
+        layout.addRow("快速恢复", self._restore_appearance_button)
         info = QLabel(_INSTRUCTION_TEXT)
         info.setWordWrap(True)
         layout.addRow("使用说明", info)
         scroll.setWidget(content)
         page_layout.addWidget(scroll)
+        self._theme_selector.currentIndexChanged.connect(self._on_appearance_changed)
+        self._layout_selector.currentIndexChanged.connect(self._on_appearance_changed)
+        self._restore_appearance_button.clicked.connect(
+            self._restore_classic_appearance
+        )
+        self._update_appearance_description()
         return page
 
     def _setup_hotkey(self) -> None:

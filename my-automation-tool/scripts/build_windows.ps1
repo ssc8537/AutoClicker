@@ -1,16 +1,21 @@
 param(
     [string]$ReleaseName = "MyAutoPlayer",
-    [string]$DistPath = "dist"
+    [string]$DistPath = "dist",
+    [string]$PythonExe = "python"
 )
 
 $ErrorActionPreference = "Stop"
+$pythonCommand = $PythonExe
+if (Test-Path -LiteralPath $PythonExe) {
+    $pythonCommand = (Resolve-Path -LiteralPath $PythonExe).Path
+}
 $projectRoot = Split-Path -Parent $PSScriptRoot
 Push-Location $projectRoot
 try {
     if (-not (Test-Path -LiteralPath "assets\myautoplayer.ico")) {
         throw "缺少统一的用户角色图标：assets\myautoplayer.ico"
     }
-    python scripts/generate_sound_effects.py
+    & $pythonCommand scripts/generate_sound_effects.py
     $workPath = Join-Path $projectRoot ("build\" + $ReleaseName)
     $iconPath = Join-Path $projectRoot "assets\myautoplayer.ico"
     $assetData = (Join-Path $projectRoot "assets") + ";assets"
@@ -20,7 +25,7 @@ try {
         "--specpath", $workPath, "--optimize", "1", "--icon", $iconPath,
         "--add-data", $assetData, "main.py"
     )
-    & python @pyInstallerArgs
+    & $pythonCommand @pyInstallerArgs
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     $releaseRoot = Join-Path $projectRoot (Join-Path $DistPath $ReleaseName)
     Copy-Item -LiteralPath "config" -Destination (Join-Path $releaseRoot "config") -Recurse -Force

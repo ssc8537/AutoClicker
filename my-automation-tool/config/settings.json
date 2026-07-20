@@ -17,5 +17,7 @@
   "popup_duration_ms": 2000,
   "popup_success_color": "#00FF00",
   "popup_end_color": "#FF0000",
-  "sound_effects_enabled": true
+  "sound_effects_enabled": true,
+  "ui_theme": "sakura_garden",
+  "ui_layout": "gallery_sidebar"
 }

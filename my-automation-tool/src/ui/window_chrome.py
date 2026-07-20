@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import QPoint, Qt, Signal
+from PySide6.QtCore import QPoint, QRect, Qt, Signal
 from PySide6.QtGui import QAction, QIcon, QMouseEvent
 from PySide6.QtWidgets import (
     QApplication,
@@ -100,42 +100,87 @@ class WindowTitleBar(QWidget):
         super().mouseReleaseEvent(event)
 
 
-class VerticalResizeHandle(QWidget):
-    """固定宽度窗口的底边垂直缩放把手。"""
+class WindowResizeHandle(QWidget):
+    """无边框窗口的边缘/角落缩放把手。"""
 
-    def __init__(self, window: QMainWindow):
+    _THICKNESS = 5
+
+    def __init__(self, window: QMainWindow, edges: Qt.Edges, object_name: str):
         super().__init__(window)
-        self.setObjectName("vertical_resize_handle")
-        self.setFixedHeight(6)
-        self.setCursor(Qt.CursorShape.SizeVerCursor)
+        self.setObjectName(object_name)
         self._window = window
-        self._origin_y: int | None = None
-        self._origin_height = 0
+        self._edges = edges
+        self._origin: QPoint | None = None
+        self._origin_geometry = QRect()
+        horizontal = bool(edges & (Qt.Edge.LeftEdge | Qt.Edge.RightEdge))
+        vertical = bool(edges & (Qt.Edge.TopEdge | Qt.Edge.BottomEdge))
+        if horizontal and vertical:
+            self.setFixedSize(self._THICKNESS, self._THICKNESS)
+            if edges in {
+                Qt.Edge.LeftEdge | Qt.Edge.TopEdge,
+                Qt.Edge.RightEdge | Qt.Edge.BottomEdge,
+            }:
+                self.setCursor(Qt.CursorShape.SizeFDiagCursor)
+            else:
+                self.setCursor(Qt.CursorShape.SizeBDiagCursor)
+        elif horizontal:
+            self.setFixedWidth(self._THICKNESS)
+            self.setCursor(Qt.CursorShape.SizeHorCursor)
+        else:
+            self.setFixedHeight(self._THICKNESS)
+            self.setCursor(Qt.CursorShape.SizeVerCursor)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
-            self._origin_y = event.globalPosition().toPoint().y()
-            self._origin_height = self._window.height()
+            self._origin = event.globalPosition().toPoint()
+            self._origin_geometry = self._window.geometry()
             event.accept()
             return
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
-        if self._origin_y is not None and event.buttons() & Qt.MouseButton.LeftButton:
-            requested_height = self._origin_height + event.globalPosition().toPoint().y() - self._origin_y
-            bounded_height = max(
-                self._window.minimumHeight(),
-                min(requested_height, self._window.maximumHeight()),
-            )
-            self._window.resize(self._window.width(), bounded_height)
+        if self._origin is not None and event.buttons() & Qt.MouseButton.LeftButton:
+            delta = event.globalPosition().toPoint() - self._origin
+            geometry = QRect(self._origin_geometry)
+            minimum_width = self._window.minimumWidth()
+            minimum_height = self._window.minimumHeight()
+            maximum_width = self._window.maximumWidth()
+            maximum_height = self._window.maximumHeight()
+            if self._edges & Qt.Edge.LeftEdge:
+                right = geometry.right()
+                new_left = min(geometry.left() + delta.x(), right - minimum_width + 1)
+                new_left = max(new_left, right - maximum_width + 1)
+                geometry.setLeft(new_left)
+            if self._edges & Qt.Edge.RightEdge:
+                new_width = max(minimum_width, min(geometry.width() + delta.x(), maximum_width))
+                geometry.setWidth(new_width)
+            if self._edges & Qt.Edge.TopEdge:
+                bottom = geometry.bottom()
+                new_top = min(geometry.top() + delta.y(), bottom - minimum_height + 1)
+                new_top = max(new_top, bottom - maximum_height + 1)
+                geometry.setTop(new_top)
+            if self._edges & Qt.Edge.BottomEdge:
+                new_height = max(
+                    minimum_height,
+                    min(geometry.height() + delta.y(), maximum_height),
+                )
+                geometry.setHeight(new_height)
+            self._window.setGeometry(geometry)
             event.accept()
             return
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
-            self._origin_y = None
+            self._origin = None
         super().mouseReleaseEvent(event)
+
+
+class VerticalResizeHandle(WindowResizeHandle):
+    """兼容旧测试与旧调用的底边缩放把手。"""
+
+    def __init__(self, window: QMainWindow):
+        super().__init__(window, Qt.Edge.BottomEdge, "vertical_resize_handle")
 
 
 class WindowChromeController:

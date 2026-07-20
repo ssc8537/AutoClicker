@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 from src.core.macro_file_manager import MacroFileError, MacroFileManager
 from src.core.macro_library import MacroEntry, scan_macro_root
 from src.ui.ai_prompt_dialog import AiPromptDialog, build_ai_prompt_content
+from src.ui.table_selection import PreserveForegroundSelectionDelegate
 
 
 class PythonSyntaxHighlighter(QSyntaxHighlighter):
@@ -176,8 +177,10 @@ class MacroLibraryPanel(QWidget):
         self.table.setHorizontalHeaderLabels(["序号", "Python 宏"])
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setItemDelegate(PreserveForegroundSelectionDelegate(self.table))
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
+        self.table.horizontalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setColumnWidth(0, 52)
         self.table.itemSelectionChanged.connect(self._show_selected_detail)
@@ -279,6 +282,8 @@ class MacroLibraryPanel(QWidget):
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                if column == 0:
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 if not entry.valid and column == 1:
                     item.setForeground(Qt.GlobalColor.red)
                 self.table.setItem(row, column, item)

@@ -1,42 +1,72 @@
-# MyAutoPlayer
+# MyAutoPlayer（自动连招）
 
-一个面向个人使用的 Windows 键盘自动化工具。它借鉴 Quickinput 的宏库、热键和界面组织方式，使用 Python/PySide6 实现；用户宏使用可信本地 Python 文件，不使用 JSON 作为运行格式。
+面向 Windows 11 的个人游戏键鼠自动化工具。程序使用 Python + PySide6；每个连招是一个可阅读、可编辑、可停止的本地 Python `run(player)` 宏，不使用案例 JSON/QIM 作为运行格式。
 
-## 当前可用功能
+> 只运行你信任的宏文件。正式 EXE 会请求管理员权限，以便与可能以管理员身份运行的游戏保持同一权限层级。
 
-- 宏库可新建、编辑、校验、改名和删除可信本地 Python `run(player)` 宏。
-- 每个宏可自定义一个键盘键或五鼠标键，支持 `switch` 与 `down`、次数、速度和即时启用；同键可并发多个宏。
-- 全局启停键可自定义；F2、F9、F12 均没有固定功能。禁用或退出时会停止脚本并释放输入。
-- 功能页提供一排快捷连点，以及名称和物理键都可修改的共享游戏动作。
-- 设置页可控制 OSD 与提示音；窗口、任务栏、托盘和无黑窗 EXE 使用用户角色图标。
-- “AI 提示词”会动态加入当前共享动作、全局键、全部支持按键和完整脚本 API，供外部 AI 编写连招。
+## 当前完整功能
 
-## 安装与启动
+- 宏库：新建、编辑、静态校验、保存、改名、删除和 AI 提示词。
+- 独立触发：每个宏可设置一个键盘键或五鼠标键，支持“按下/切换”、次数、速度、即时启用；同键可并发多个宏。
+- 全局安全：全局启停键可自定义；停止、禁用和退出都会释放输入并清理监听。
+- 功能页：一排快捷连点，以及名称/物理键均可编辑的共享游戏动作。
+- 桌面体验：OSD、提示音、托盘、统一角色图标、无黑窗管理员 EXE、单实例运行。
+- 双外观：经典粉红/樱空花园主题与顶部标签/画册侧栏布局可独立组合，一键恢复经典。
+- 画册侧栏：用户动漫头像、居中导航；窗口支持上下左右及四角缩放。
+- AI 脚本作者：提示词会动态加入当前全局键、共享动作、支持按键和完整脚本 API。
 
-在 Windows PowerShell 中执行：
+## 下载后快速启动
 
-```powershell
-cd C:\Users\s\Desktop\1-test\1-自动连点器\my-automation-tool
-python -m pip install -r requirements.txt
-python main.py
-```
-
-详细环境说明见 `SETUP_GUIDE.md`。程序启动后，先查看设置页的当前全局启停键，再在宏库启用脚本并在触发页设置它自己的触发键。真实输入只在记事本或安全区域测试。
-
-## 测试
+完整的人类/AI 共用配置说明见：[SETUP_GUIDE.md](SETUP_GUIDE.md)。最短 PowerShell 流程：
 
 ```powershell
-cd C:\Users\s\Desktop\1-test\1-自动连点器\my-automation-tool
-python -m unittest discover -s tests -v
-python -m compileall -q main.py src scripts
+git clone https://github.com/ssc8537/AutoClicker.git
+cd AutoClicker
+py -3 -m venv .venv
+& .\.venv\Scripts\python.exe -m pip install --upgrade pip
+& .\.venv\Scripts\python.exe -m pip install -r .\my-automation-tool\requirements.txt
+& .\.venv\Scripts\python.exe .\my-automation-tool\main.py
 ```
 
-人工测试步骤见 `my-automation-tool/docs/USER_TEST_GUIDE.md`。自动测试不会发送真实键盘输入；真实输入仅由你手动启动程序后触发。
+如果电脑没有 `py` 命令，把第一条 Python 命令改为 `python -m venv .venv`。
 
-## AI 接手与阶段开发
+## 自动检查
 
-- 新 AI 默认只读 `AGENTS.md`、`PROJECT_ROADMAP.md`、`my-automation-tool/docs/handover/CURRENT_HANDOVER.md`，并运行 `git status --short`。
-- `PROJECT_ROADMAP.md` 是唯一阶段计划；每轮完成实现或用户验收后都必须原地更新，禁止新建第二份根路线。
-- 只在开始当前阶段时读取对应的一页需求与验收教程；历史阶段文档只作证据，不是接手入口。
-- 优秀案例仅在需要时只读核对，禁止复制源码、资源、品牌或格式。
-- 用户明确要求发布时才创建 Git 回退版本；默认不提交、不推送。
+```powershell
+cd AutoClicker
+& .\.venv\Scripts\python.exe -m unittest discover -s .\my-automation-tool\tests -q
+& .\.venv\Scripts\python.exe -m compileall -q .\my-automation-tool\main.py .\my-automation-tool\src .\my-automation-tool\tests
+git diff --check
+```
+
+自动测试不会主动运行用户真实连招。真实键鼠输入请先在记事本或游戏安全训练区域人工验收。
+
+## 构建 Windows 便携版
+
+```powershell
+& .\.venv\Scripts\python.exe -m pip install -r .\my-automation-tool\requirements-build.txt
+$python = (Resolve-Path .\.venv\Scripts\python.exe).Path
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
+    .\my-automation-tool\scripts\build_windows.ps1 -PythonExe $python
+```
+
+输出：`my-automation-tool\dist\MyAutoPlayer\MyAutoPlayer.exe`。`dist/` 是本机构建产物，不提交到 GitHub。
+
+## 重要目录
+
+| 路径 | 用途 |
+|---|---|
+| `my-automation-tool/main.py` | 程序入口 |
+| `my-automation-tool/src/` | 核心逻辑与 UI |
+| `my-automation-tool/macros/` | 用户 Python 连招 |
+| `my-automation-tool/config/` | 全局键、主题、共享动作、提示词等配置 |
+| `my-automation-tool/assets/` | 图标、提示音和画册头像 |
+| `my-automation-tool/tests/` | 自动回归测试 |
+| `PRODUCT_REQUIREMENTS.md` | 当前全部真实产品需求 |
+| `PROJECT_ROADMAP.md` | 唯一阶段路线与进度 |
+
+## AI 接手入口
+
+AI 依次读取：`AGENTS.md` → `PRODUCT_REQUIREMENTS.md` → `PROJECT_ROADMAP.md` → `my-automation-tool/docs/handover/CURRENT_HANDOVER.md` → `SETUP_GUIDE.md`，然后运行 `git status --short`。不得执行、覆盖或清理用户 `macros/`、`config/`、`logs/`；默认不提交、不推送，只有用户明确要求才发布。
+
+优秀案例源码仅在本地用于只读行为核对，已被 `.gitignore` 排除，不是运行依赖，也不会上传 GitHub。
