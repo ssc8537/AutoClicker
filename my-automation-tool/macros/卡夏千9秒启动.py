@@ -35,7 +35,6 @@ def run(player):
     player.sleep(20)
     _平A(player, 31, 50)
     _平A(player, 31, 50)
-    _平A(player, 31, 50)
 
     # 卡提 E：实录还记录了一次切卡提后的跳跃，按原始时间线保留。
     _动作(player, "角色 1", 33, 100)
