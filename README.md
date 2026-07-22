@@ -2,7 +2,7 @@
 
 面向 Windows 11 的个人游戏键鼠自动化工具。程序使用 Python + PySide6；每个连招是一个可阅读、可编辑、可停止的本地 Python `run(player)` 宏，不使用案例 JSON/QIM 作为运行格式。
 
-当前已验收版本：Stage 19 原生开发连招工作台。默认主干`master`保存最新源码；历史标签仍可用于回退旧版本。
+当前已验收并归档版本：Stage 19 原生开发连招工作台。默认主干`master`保存最新源码；历史标签与Git提交仍可用于回退旧版本。
 
 > 只运行你信任的宏文件。正式 EXE 会请求管理员权限，以便与可能以管理员身份运行的游戏保持同一权限层级。
 
@@ -75,6 +75,9 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
 | `my-automation-tool/tests/` | 自动回归测试 |
 | `PRODUCT_REQUIREMENTS.md` | 当前全部真实产品需求 |
 | `PROJECT_ROADMAP.md` | 唯一阶段路线与进度 |
+| `SETUP_GUIDE.md` | 人类与 AI 共用的安装、运行和构建入口 |
+| `my-automation-tool/docs/handover/CURRENT_HANDOVER.md` | 当前版本状态、边界与接手说明 |
+| `my-automation-tool/native-replay/BUILDING.md` | 原生录像核心的可复现构建与工具清理说明 |
 
 ## AI 接手入口
 

@@ -1,8 +1,10 @@
-# 当前交接：Stage 19 最终交付完成
+# 当前交接：Stage 19 最终归档完成
 
 ## 当前状态
 
-用户已明确确认Stage 19D历史录像浏览以及此前Stage 19全部功能验收通过。本轮完成最终交付固化，并按用户授权用一个发布提交正常推送GitHub默认主干`master`；禁止强推。准确提交SHA直接读取`git log -1`或远端`refs/heads/master`。
+用户已明确确认Stage 19D历史录像浏览以及此前Stage 19全部功能验收通过。最终交付检查点`18fc200`已先推送GitHub默认主干`master`，随后完成归档文档清理；因此清理有误时可从该提交恢复。归档仍使用普通提交推送，禁止强推。最终准确SHA直接读取`git log -1`或远端`refs/heads/master`。
+
+当前文档只保留各自职责明确的入口：根`PRODUCT_REQUIREMENTS.md`保存当前真实需求，`PROJECT_ROADMAP.md`保存阶段状态，`README.md`与`SETUP_GUIDE.md`面向下载者，本文面向下一位AI，`native-replay/BUILDING.md`与`THIRD_PARTY_NOTICES.md`保存可复现构建和许可。重复的`CURRENT_ACCEPTANCE.md`一次性验收快照已从当前树移除，历史内容仍可通过Git恢复。
 
 当前没有自动开始的下一阶段。未来AI只在用户提出新的明确范围后继续，不得自行扩展产品。
 
@@ -45,6 +47,8 @@ Rust/Cargo固定为`C:\MAPL-Native-Replay\rustup\`和`C:\MAPL-Native-Replay\carg
 | 残留进程 | `MyAutoPlayer`、原生录像核心、Cargo、Rustc均为0 |
 
 发布构建不会复制本机录像保存路径、麦克风选择、窗口坐标或实时生成提示词。源码目录中的用户运行状态继续保留且被Git忽略。
+
+两份可交付AI提示词`config/ai_prompt.md`与`config/ai_prompt.default.md`已核对为字节一致；完整第9节按键字典、动态第10/11节说明、录像事件字段、有限循环规则、双音轨与外挂字幕边界均为当前版本，本轮无需改写。
 
 ## 用户文件与已知边界
 
