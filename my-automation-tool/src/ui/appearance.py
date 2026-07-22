@@ -1,4 +1,4 @@
-"""可恢复的主题与界面布局设置。"""
+"""Stage 19 起唯一保留的樱空花园画册外观。"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -10,25 +10,14 @@ import tempfile
 from src.utils.app_paths import config_root
 
 
-CLASSIC_THEME = "classic_pink"
 SAKURA_THEME = "sakura_garden"
-CLASSIC_LAYOUT = "classic_tabs"
 GALLERY_LAYOUT = "gallery_sidebar"
-
-THEME_OPTIONS = (
-    ("经典粉红", CLASSIC_THEME),
-    ("樱空花园", SAKURA_THEME),
-)
-LAYOUT_OPTIONS = (
-    ("经典顶部标签", CLASSIC_LAYOUT),
-    ("画册侧边导航", GALLERY_LAYOUT),
-)
 
 
 @dataclass(frozen=True)
 class AppearanceSettings:
-    theme: str = CLASSIC_THEME
-    layout: str = CLASSIC_LAYOUT
+    theme: str = SAKURA_THEME
+    layout: str = GALLERY_LAYOUT
 
 
 class AppearanceSettingsStore:
@@ -44,13 +33,8 @@ class AppearanceSettingsStore:
             loaded = {}
         if not isinstance(loaded, dict):
             loaded = {}
-        theme = loaded.get("ui_theme", CLASSIC_THEME)
-        layout = loaded.get("ui_layout", CLASSIC_LAYOUT)
-        if theme not in {value for _, value in THEME_OPTIONS}:
-            theme = CLASSIC_THEME
-        if layout not in {value for _, value in LAYOUT_OPTIONS}:
-            layout = CLASSIC_LAYOUT
-        return AppearanceSettings(theme=theme, layout=layout)
+        # Stage 19 起只保留樱空花园画册；旧经典值在读取时自动迁移。
+        return AppearanceSettings()
 
     def save(self, settings: AppearanceSettings) -> None:
         data: dict[str, object] = {}
@@ -60,8 +44,8 @@ class AppearanceSettingsStore:
                 data = loaded
         except (OSError, UnicodeError, json.JSONDecodeError):
             pass
-        data["ui_theme"] = settings.theme
-        data["ui_layout"] = settings.layout
+        data["ui_theme"] = SAKURA_THEME
+        data["ui_layout"] = GALLERY_LAYOUT
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary_name: str | None = None
         try:
@@ -158,4 +142,4 @@ SAKURA_STYLESHEET = """
 
 
 def stylesheet_for(theme: str) -> str:
-    return SAKURA_STYLESHEET if theme == SAKURA_THEME else CLASSIC_STYLESHEET
+    return SAKURA_STYLESHEET

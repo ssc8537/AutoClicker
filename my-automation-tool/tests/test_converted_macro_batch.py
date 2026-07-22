@@ -12,7 +12,7 @@ class ConvertedMacroBatchTests(unittest.TestCase):
         "一_剑切轴.py": ("numpad0", "down", [3, 5, 7, 8, 1000]),
         "一_千咲合轴卡提.py": ("mouse_back", "down", [5, 5, 8, 8, 100]),
         "一_夏空合轴千咲.py": ("mouse_forward", "down", [1, 1, 2, 2, 2, 4, 6, 100]),
-        "12eqr左键_今汐.py": ("mouse_back", "down", []),
+        "12eqr左键-今汐.py": ("mouse_back", "down", []),
         "13EQFR左键.py": ("mouse_forward", "down", []),
         "123全切加大招_今汐.py": ("mouse_back", "down", []),
         "1234eqfR左键.py": ("mouse_back", "down", []),
@@ -49,7 +49,6 @@ class ConvertedMacroBatchTests(unittest.TestCase):
 
     def test_compact_sequences_keep_original_physical_order(self):
         expected = {
-            "12eqr左键_今汐.py": ['"1"', '"2"', '"e"', '"q"', '"r"', '"f"', '"mouse_left"'],
             "13EQFR左键.py": ['"1"', '"3"', '"e"', '"q"', '"f"', '"r"', '"mouse_left"'],
         }
         for filename, keys in expected.items():

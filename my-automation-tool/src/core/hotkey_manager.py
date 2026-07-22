@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import ctypes
+import os
 import queue
 import threading
+import time
+from dataclasses import dataclass
 from ctypes import wintypes
 from enum import IntEnum
 
@@ -14,6 +17,16 @@ from src.core.input_simulator import INPUT_EVENT_MARKER
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class PhysicalInputEvent:
+    hotkey: str
+    pressed: bool
+    vk: int | None
+    monotonic_ns: int
+    foreground_hwnd: int
+    foreground_pid: int
 
 
 class TriggerMode(IntEnum):
@@ -73,6 +86,42 @@ class HotkeyManager:
         self._queued_physical_state: dict[str, bool] = {}
         self._global_disable_key_pressed = False
         self._listening = False
+        self._physical_observers: list[callable] = []
+
+    def add_physical_observer(self, callback) -> None:
+        with self._lock:
+            if callback not in self._physical_observers:
+                self._physical_observers.append(callback)
+
+    def remove_physical_observer(self, callback) -> None:
+        with self._lock:
+            if callback in self._physical_observers:
+                self._physical_observers.remove(callback)
+
+    def _notify_physical_observers(
+        self, hotkey: str, pressed: bool, vk: int | None
+    ) -> None:
+        with self._lock:
+            observers = tuple(self._physical_observers)
+        if not observers:
+            return
+        hwnd = int(ctypes.windll.user32.GetForegroundWindow() or 0)
+        pid = wintypes.DWORD()
+        if hwnd:
+            ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        event = PhysicalInputEvent(
+            hotkey,
+            pressed,
+            vk,
+            time.perf_counter_ns(),
+            hwnd,
+            int(pid.value),
+        )
+        for observer in observers:
+            try:
+                observer(event)
+            except Exception:
+                logger.exception("物理输入观察器异常，已隔离")
 
     def register(
         self, hotkey: str, callback, mode: TriggerMode = TriggerMode.DOWN,
@@ -268,6 +317,19 @@ class HotkeyManager:
     def is_mouse_over_window(self) -> bool:
         if self._main_hwnd == 0:
             return False
+        # 仅当本程序确实处于前台时，才抑制窗口区域内的鼠标触发。
+        # 游戏覆盖窗口后仍会保留旧窗口矩形，且常把鼠标锁在屏幕中央；
+        # 若只看坐标，会把游戏中的真实侧键按下静默丢弃。
+        foreground = ctypes.windll.user32.GetForegroundWindow()
+        if not foreground:
+            return False
+        foreground_pid = wintypes.DWORD()
+        if not ctypes.windll.user32.GetWindowThreadProcessId(
+            foreground, ctypes.byref(foreground_pid)
+        ):
+            return False
+        if foreground_pid.value != os.getpid():
+            return False
         pt = wintypes.POINT()
         ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
         rect = wintypes.RECT()
@@ -333,6 +395,7 @@ class HotkeyManager:
         vk = self._keyboard_vk(key)
         hotkey = input_key_from_windows_vk(vk) if vk is not None else None
         if hotkey is not None:
+            self._notify_physical_observers(hotkey, pressed, vk)
             self._queue_physical_event(hotkey, pressed)
 
     def _on_windows_keyboard_event(self, message: int, data) -> bool:
@@ -348,8 +411,10 @@ class HotkeyManager:
         pressed = pressed_by_message.get(int(message))
         if pressed is None:
             return True
-        hotkey = input_key_from_windows_vk(int(getattr(data, "vkCode", -1)))
+        vk = int(getattr(data, "vkCode", -1))
+        hotkey = input_key_from_windows_vk(vk)
         if hotkey is not None:
+            self._notify_physical_observers(hotkey, pressed, vk)
             self._queue_physical_event(hotkey, pressed)
         return True
 
@@ -371,6 +436,7 @@ class HotkeyManager:
             hotkey = {1: "mouse_back", 2: "mouse_forward"}.get(button)
             edge = (hotkey, int(message) == 0x020B) if hotkey is not None else None
         if edge is not None:
+            self._notify_physical_observers(edge[0], edge[1], None)
             self._queue_physical_event(*edge)
         return True
 

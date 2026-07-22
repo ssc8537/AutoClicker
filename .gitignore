@@ -14,6 +14,8 @@ __pycache__/
 # Logs
 **/logs/*.log
 **/logs/*.log.*
+**/logs/**/*.log
+**/logs/**/*.log.*
 
 # Environment
 .env
@@ -40,3 +42,10 @@ Desktop.ini
 # 本地推送脚本（不推送到 GitHub）
 _push_to_github.bat
 _update_*.py
+my-automation-tool/.tooling/
+my-automation-tool/native-replay/.cargo/
+my-automation-tool/native-replay/target/
+my-automation-tool/captures/
+my-automation-tool/config/replay_settings.json
+my-automation-tool/config/key_monitor.json
+my-automation-tool/config/ai_prompt.complete.md

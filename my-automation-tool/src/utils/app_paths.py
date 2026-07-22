@@ -44,3 +44,8 @@ def config_root() -> Path:
 
 def log_root() -> Path:
     return data_root() / "logs"
+
+
+def capture_root() -> Path:
+    """开发连招的默认视频与会话目录。"""
+    return data_root() / "captures"

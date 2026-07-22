@@ -12,17 +12,16 @@ from src.core.game_keybinds import (
 )
 from src.core.global_hotkey import GlobalHotkeyError, load_global_hotkey
 from src.core.input_keys import (
-    MOUSE_BUTTON_FOR_HOTKEY,
-    WINDOWS_VK_BY_KEY,
     display_input_key,
 )
 from src.utils.app_paths import config_root
 
-from PySide6.QtCore import Qt, Slot
-from PySide6.QtGui import QTextCursor
+from PySide6.QtCore import Qt, QUrl, Slot
+from PySide6.QtGui import QDesktopServices, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
+    QHBoxLayout,
     QLabel,
     QPushButton,
     QTextBrowser,
@@ -47,6 +46,7 @@ class PromptContent:
 
     text: str
     load: PromptTemplateLoad
+    complete_path: Path | None = None
 
 
 def _default_config_dir() -> Path:
@@ -88,7 +88,7 @@ def _runtime_reference(config_dir: Path | None = None) -> str:
     """Build the current key contract from code and saved configuration."""
     root = (config_dir or _default_config_dir()).resolve()
     lines = [
-        "## 9. 当前程序设置",
+        "## 10. 当前程序设置",
         "",
         "> 本节每次打开窗口时由程序动态生成，不会使用过期默认值。",
         "",
@@ -128,33 +128,24 @@ def _runtime_reference(config_dir: Path | None = None) -> str:
                 f"{_md_cell(display_input_key(key))} | {calls} |"
             )
 
-    lines.extend(
-        [
-            "",
-            "## 10. 完整按键字典",
-            "",
-            "键盘键可用于 `HOTKEY` 和 `player.tap()`；本表由当前源码生成。",
-            "",
-            "| 内部值 | 界面显示 | Windows VK |",
-            "|---|---|---:|",
-        ]
-    )
-    for key, vk in WINDOWS_VK_BY_KEY.items():
-        lines.append(f"| `{key}` | {_md_cell(display_input_key(key))} | `0x{vk:02X}` |")
-    lines.extend(
-        [
-            "",
-            "### 鼠标键",
-            "",
-            "鼠标触发内部值用于 `HOTKEY`；`button` 名用于 `player.mouse_*()`。",
-            "",
-            "| HOTKEY 内部值 | 界面显示 | player button |",
-            "|---|---|---|",
-        ]
-    )
-    for hotkey, button in MOUSE_BUTTON_FOR_HOTKEY.items():
-        lines.append(f"| `{hotkey}` | {display_input_key(hotkey)} | `{button}` |")
     return "\n".join(lines)
+
+
+def _write_complete_prompt(load: PromptTemplateLoad, text: str) -> Path | None:
+    """保存程序本次实际展示的1～11节完整提示词；失败时不影响窗口。"""
+    path = load.current_path.with_name("ai_prompt.complete.md")
+    temporary = path.with_name(f".{path.name}.tmp")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary.write_text(text, encoding="utf-8", newline="\n")
+        temporary.replace(path)
+    except OSError:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return None
+    return path
 
 
 def load_prompt_template(config_dir: Path | None = None) -> PromptTemplateLoad:
@@ -249,7 +240,7 @@ def build_ai_prompt_content(
         f"{load.template.rstrip()}\n\n{runtime_reference}\n\n"
         f"## 11. 已保存的宏源码\n\n{source_section}\n"
     )
-    return PromptContent(text, load)
+    return PromptContent(text, load, _write_complete_prompt(load, text))
 
 
 def build_ai_prompt(source: str | None = None, config_dir: Path | None = None) -> str:
@@ -265,6 +256,7 @@ class AiPromptDialog(QDialog):
         parent: QWidget,
         prompt: str,
         template_load: PromptTemplateLoad | None = None,
+        complete_path: Path | None = None,
     ):
         super().__init__(parent)
         self.setWindowTitle("AI 提示词")
@@ -306,14 +298,28 @@ class AiPromptDialog(QDialog):
         self.path_info = QLabel("")
         self.path_info.setObjectName("ai_prompt_paths")
         self.path_info.setWordWrap(True)
+        self._editable_path: Path | None = None
+        self._backup_path: Path | None = None
         if template_load is not None:
-            self.path_info.setText(
-                "用记事本修改当前 Markdown 并保存，重新点击 AI 提示词即可刷新。\n"
-                f"当前提示词：{template_load.current_path}\n"
-                f"默认备份：{template_load.default_path}\n"
-                "编辑出错时，请用默认备份人工覆盖当前提示词文件。"
-            )
+            self.path_info.setText(self._path_text(template_load, complete_path))
+            self._editable_path = template_load.current_path
+            self._backup_path = template_load.default_path
         layout.addWidget(self.path_info)
+        folder_buttons = QHBoxLayout()
+        self.open_editable_folder_button = QPushButton("打开可编辑文件夹")
+        self.open_editable_folder_button.setObjectName("open_editable_prompt_folder_button")
+        self.open_editable_folder_button.clicked.connect(
+            lambda: self._open_prompt_folder(self._editable_path)
+        )
+        folder_buttons.addWidget(self.open_editable_folder_button)
+        self.open_backup_folder_button = QPushButton("打开备份文件存储文件夹")
+        self.open_backup_folder_button.setObjectName("open_backup_prompt_folder_button")
+        self.open_backup_folder_button.clicked.connect(
+            lambda: self._open_prompt_folder(self._backup_path)
+        )
+        folder_buttons.addWidget(self.open_backup_folder_button)
+        layout.addLayout(folder_buttons)
+        self._sync_folder_buttons()
         self.load_status = QLabel(template_load.notice if template_load is not None else "")
         self.load_status.setObjectName("ai_prompt_load_status")
         self.load_status.setWordWrap(True)
@@ -334,16 +340,49 @@ class AiPromptDialog(QDialog):
         QApplication.clipboard().setText(self._prompt_markdown)
         self.copy_status.setText("提示词已复制，请粘贴给 AI")
 
-    def update_prompt(self, prompt: str, template_load: PromptTemplateLoad | None = None) -> None:
+    def update_prompt(
+        self,
+        prompt: str,
+        template_load: PromptTemplateLoad | None = None,
+        complete_path: Path | None = None,
+    ) -> None:
         """Refresh the modeless reader without replacing or blocking the main window."""
         self._prompt_markdown = prompt
         self.prompt_editor.setMarkdown(prompt)
         self.prompt_editor.moveCursor(QTextCursor.MoveOperation.Start)
         if template_load is not None:
-            self.path_info.setText(
-                "用记事本修改当前 Markdown 并保存，重新点击 AI 提示词即可刷新。\n"
-                f"当前提示词：{template_load.current_path}\n"
-                f"默认备份：{template_load.default_path}\n"
-                "编辑出错时，请用默认备份人工覆盖当前提示词文件。"
-            )
+            self.path_info.setText(self._path_text(template_load, complete_path))
+            self._editable_path = template_load.current_path
+            self._backup_path = template_load.default_path
+            self._sync_folder_buttons()
             self.load_status.setText(template_load.notice)
+
+    def _sync_folder_buttons(self) -> None:
+        self.open_editable_folder_button.setEnabled(self._editable_path is not None)
+        self.open_backup_folder_button.setEnabled(self._backup_path is not None)
+
+    @staticmethod
+    def _open_prompt_folder(path: Path | None) -> None:
+        if path is None:
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.parent)))
+
+    @staticmethod
+    def _path_text(
+        template_load: PromptTemplateLoad, complete_path: Path | None
+    ) -> str:
+        complete = (
+            str(complete_path)
+            if complete_path is not None
+            else "生成失败；请点击“复制提示词”获取程序内完整内容"
+        )
+        return (
+            "【实时生成，只读】完整提示词（第1～11节，交给AI；每次打开都会覆盖）："
+            f"{complete}\n"
+            "【存储文件，可修改】规则模板（第1～9节；不会包含实时第10/11节）："
+            f"{template_load.current_path}\n"
+            "【存储文件，默认备份】恢复用模板（通常不要修改）："
+            f"{template_load.default_path}\n"
+            "修改模板后重新点击“AI 提示词”即可刷新；编辑出错时用默认备份人工覆盖。"
+        )

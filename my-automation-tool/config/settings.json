@@ -13,11 +13,12 @@
   "popup_enabled": true,
   "popup_position_x": 50,
   "popup_position_y": 10,
-  "popup_size": 24,
+  "popup_size": 14,
   "popup_duration_ms": 2000,
   "popup_success_color": "#00FF00",
   "popup_end_color": "#FF0000",
   "sound_effects_enabled": true,
   "ui_theme": "sakura_garden",
-  "ui_layout": "gallery_sidebar"
+  "ui_layout": "gallery_sidebar",
+  "popup_background_enabled": true
 }

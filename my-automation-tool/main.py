@@ -3,33 +3,53 @@ from __future__ import annotations
 
 import atexit
 import ctypes
+import os
 import sys
 import threading
 import time
+from ctypes import wintypes
 from pathlib import Path
 
 _IMPORT_STARTED_AT = time.perf_counter()
 
 import keyboard
-from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QPixmap
+from PySide6.QtCore import (
+    QEvent,
+    QLibraryInfo,
+    QObject,
+    Qt,
+    QTimer,
+    QTranslator,
+    QUrl,
+    Signal,
+    Slot,
+)
+from PySide6.QtGui import QDesktopServices, QPixmap
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
+    QAbstractItemView,
     QApplication,
     QCheckBox,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFileDialog,
     QFormLayout,
     QGridLayout,
     QGroupBox,
     QHeaderView,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QProgressBar,
     QScrollArea,
+    QSlider,
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -38,6 +58,8 @@ from PySide6.QtWidgets import (
 )
 
 from src.core.hotkey_manager import HotkeyManager, TriggerMode
+from src.core.audio_devices import list_microphone_devices
+from src.core.input_keys import KEYBOARD_KEYS, MOUSE_HOTKEYS, physical_input_name
 from src.core.global_hotkey import (
     DEFAULT_GLOBAL_HOTKEY,
     GlobalHotkeyError,
@@ -59,20 +81,34 @@ from src.core.quick_click import (
     QuickClickSettings,
     QuickClickSettingsStore,
 )
+from src.core.replay_settings import (
+    REPLAY_DURATIONS,
+    REPLAY_ENCODER_MODES,
+    REPLAY_FRAME_RATES,
+    REPLAY_QUALITIES,
+    ReplaySettings,
+    ReplaySettingsStore,
+)
+from src.core.native_replay import (
+    NativeAudioPreviewController,
+    NativeReplayController,
+    normalise_replay_session_name,
+)
+from src.core.replay_history import ReplayHistoryEntry, ReplayHistoryStore, ReplayHistoryError
 from src.ui.macro_library_panel import MacroLibraryPanel
 from src.ui.appearance import (
     AppearanceSettings,
     AppearanceSettingsStore,
-    CLASSIC_LAYOUT,
-    CLASSIC_THEME,
-    GALLERY_LAYOUT,
-    LAYOUT_OPTIONS,
-    SAKURA_THEME,
-    THEME_OPTIONS,
     stylesheet_for,
 )
 from src.ui.game_keybinds_panel import GameKeybindsPanel
 from src.ui.osd_window import OsdPopup
+from src.ui.key_monitor_window import (
+    DEFAULT_MONITOR_KEYS,
+    DETAIL_BACKGROUND_PRESETS,
+    RECENT_COUNTS,
+    KeyMonitorWindow,
+)
 from src.ui.window_chrome import (
     VerticalResizeHandle,
     WindowResizeHandle,
@@ -84,9 +120,9 @@ from src.ui.trigger_key_edit import TriggerKeyEdit, display_hotkey
 from src.ui.rose_spin_box import RoseDoubleSpinBox, RoseSpinBox
 from src.ui.sound_effects import SoundEffects
 from src.ui.table_selection import PreserveForegroundSelectionDelegate
-from src.utils.app_paths import macro_root, resource_root
-from src.utils.logger import get_logger, setup_logging
-from src.utils.single_instance import SingleInstanceGuard, show_already_running_message
+from src.utils.app_paths import application_root, log_root, macro_root, resource_root
+from src.utils.logger import clear_logs_older_than, get_logger, setup_logging
+from src.utils.single_instance import SingleInstanceGuard
 
 logger = get_logger(__name__)
 _MACRO_ROOT = macro_root()
@@ -105,6 +141,12 @@ def global_status_notification(disabled: bool) -> tuple[str, bool]:
     if disabled:
         return "全局脚本已禁用", False
     return "全局脚本已就绪", True
+
+
+def macro_run_notification(name: str, count: int) -> str:
+    """Describe the planned loop count shown at the macro start edge."""
+    loop_text = "+∞" if count == 0 else f"{count} 次"
+    return f"{name} 宏运行中 · 循环 {loop_text}"
 
 
 def _enable_per_monitor_v2_dpi() -> None:
@@ -255,7 +297,9 @@ class _HotkeyDispatcher(QObject):
             player.stop()
         self._running_names[binding_id] = macro.name
         logger.info("启动 Python 宏：%s，count=%s", macro.name, macro.count)
-        self._osd_popup.show_notification(f"{macro.name} 宏运行中", success=True)
+        self._osd_popup.show_notification(
+            macro_run_notification(macro.name, macro.count), success=True
+        )
 
     @Slot(str, int)
     def _stop_f9(self, binding_id: str, generation: int) -> None:
@@ -340,9 +384,29 @@ class MainWindow(QMainWindow):
         self._quick_click_controller.configure(self._quick_click_settings)
         self._appearance_store = AppearanceSettingsStore()
         self._appearance = self._appearance_store.load()
+        self._replay_settings_store = ReplaySettingsStore()
+        self._replay_settings = self._replay_settings_store.load()
+        self._native_replay_controller = NativeReplayController()
+        self._audio_preview_controller = NativeAudioPreviewController()
+        self._audio_preview_error: str | None = None
+        self._replay_save_task: dict[str, object] | None = None
+        self._native_replay_exit_handled = False
+        self._recording_flash_on = False
+        self._recording_flash_ticks = 0
+        self._key_monitor_window: KeyMonitorWindow | None = None
+        self._native_replay_timer = QTimer(self)
+        self._native_replay_timer.setInterval(100)
+        self._native_replay_timer.timeout.connect(self._poll_native_replay)
+        self._audio_preview_restart_timer = QTimer(self)
+        self._audio_preview_restart_timer.setSingleShot(True)
+        self._audio_preview_restart_timer.setInterval(350)
+        self._audio_preview_restart_timer.timeout.connect(self._start_audio_preview)
         self._focus_sound_played = False
         self._global_hotkey = self._load_global_hotkey()
         self._setup_ui()
+        if os.environ.get("MYAUTOPLAYER_DISABLE_AUDIO") != "1":
+            self._start_audio_preview()
+            self._native_replay_timer.start()
         QApplication.instance().installEventFilter(self)
         self._dispatcher = _HotkeyDispatcher(
             self._status_label, self._osd_popup, macro_runtime, self._sound_effects
@@ -368,9 +432,37 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "_appearance_store"):
             self._appearance_store = AppearanceSettingsStore()
         if not hasattr(self, "_appearance"):
-            # 直接调用 _setup_ui 的离屏测试使用可靠的经典默认值。
             self._appearance = AppearanceSettings()
-        self.setMinimumWidth(642)
+        if not hasattr(self, "_replay_settings_store"):
+            self._replay_settings_store = ReplaySettingsStore()
+        if not hasattr(self, "_replay_settings"):
+            self._replay_settings = self._replay_settings_store.load()
+        if not hasattr(self, "_native_replay_controller"):
+            self._native_replay_controller = NativeReplayController()
+        if not hasattr(self, "_audio_preview_controller"):
+            self._audio_preview_controller = NativeAudioPreviewController()
+        if not hasattr(self, "_audio_preview_error"):
+            self._audio_preview_error = None
+        if not hasattr(self, "_replay_save_task"):
+            self._replay_save_task = None
+        if not hasattr(self, "_native_replay_exit_handled"):
+            self._native_replay_exit_handled = False
+        if not hasattr(self, "_recording_flash_on"):
+            self._recording_flash_on = False
+        if not hasattr(self, "_recording_flash_ticks"):
+            self._recording_flash_ticks = 0
+        if not hasattr(self, "_key_monitor_window"):
+            self._key_monitor_window = None
+        if not hasattr(self, "_native_replay_timer"):
+            self._native_replay_timer = QTimer(self)
+            self._native_replay_timer.setInterval(100)
+            self._native_replay_timer.timeout.connect(self._poll_native_replay)
+        if not hasattr(self, "_audio_preview_restart_timer"):
+            self._audio_preview_restart_timer = QTimer(self)
+            self._audio_preview_restart_timer.setSingleShot(True)
+            self._audio_preview_restart_timer.setInterval(350)
+            self._audio_preview_restart_timer.timeout.connect(self._start_audio_preview)
+        self.setMinimumWidth(760)
         self.setWindowIcon(application_icon())
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window
@@ -380,7 +472,7 @@ class MainWindow(QMainWindow):
         if screen is not None:
             self.setMaximumHeight(screen.availableGeometry().height())
             self.setMaximumWidth(screen.availableGeometry().width())
-        self.resize(642, 510)
+        self.resize(840, 510)
 
         central_widget = QWidget()
         central_widget.setObjectName("app_surface")
@@ -462,13 +554,12 @@ class MainWindow(QMainWindow):
         side_layout.addWidget(gallery_title)
         side_navigation = QListWidget()
         side_navigation.setObjectName("side_navigation")
-        side_navigation.addItems(["宏库", "触发", "功能", "设置"])
+        side_navigation.addItems(["宏库", "触发", "功能", "开发连招", "设置"])
         for index in range(side_navigation.count()):
             side_navigation.item(index).setTextAlignment(Qt.AlignmentFlag.AlignCenter)
         side_navigation.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         side_navigation.setCurrentRow(0)
         side_layout.addWidget(side_navigation, 1)
-        side_panel.hide()
         content_layout.addWidget(side_panel)
 
         tabs = QTabWidget()
@@ -478,6 +569,7 @@ class MainWindow(QMainWindow):
         tabs.addTab(self._build_macro_page(), "宏库")
         tabs.addTab(self._build_trigger_page(), "触发")
         tabs.addTab(self._build_features_page(), "功能")
+        tabs.addTab(self._build_combo_development_page(), "开发连招")
         tabs.addTab(self._build_settings_page(), "设置")
         content_layout.addWidget(tabs, 1)
         layout.addWidget(content_shell, 1)
@@ -512,74 +604,29 @@ class MainWindow(QMainWindow):
     def _apply_appearance(
         self, *, persist: bool = False, fit_layout: bool = False
     ) -> None:
-        """主题只改颜色，布局只改排版；两者可任意组合。"""
+        """Stage 19 起固定使用樱空花园画册布局。"""
         self.setStyleSheet(stylesheet_for(self._appearance.theme))
-        gallery = self._appearance.layout == GALLERY_LAYOUT
-        self._side_panel.setVisible(gallery)
-        self._tabs.tabBar().setVisible(not gallery)
-        margins = (8, 8, 8, 8) if gallery else (0, 0, 0, 0)
+        gallery = True
+        self._side_panel.setVisible(True)
+        self._tabs.tabBar().hide()
+        margins = (8, 8, 8, 8)
         self._content_layout.setContentsMargins(*margins)
         self._content_layout.setSpacing(8 if gallery else 0)
-        self.setMinimumWidth(760 if gallery else 642)
+        self.setMinimumWidth(760)
         if fit_layout:
-            self.resize(840 if gallery else 642, self.height())
+            self.resize(840, self.height())
         if hasattr(self, "_trigger_detail"):
             self._trigger_detail.setFixedWidth(140 if gallery else 134)
         if hasattr(self, "_trigger_table"):
             widths = (40, 76, 68, 54) if gallery else (38, 70, 62, 44)
             for column, width in zip((0, 2, 3, 4), widths):
                 self._trigger_table.setColumnWidth(column, width)
-        if hasattr(self, "_theme_selector"):
-            self._theme_selector.blockSignals(True)
-            self._select_combo_data(self._theme_selector, self._appearance.theme)
-            self._theme_selector.blockSignals(False)
-        if hasattr(self, "_layout_selector"):
-            self._layout_selector.blockSignals(True)
-            self._select_combo_data(self._layout_selector, self._appearance.layout)
-            self._layout_selector.blockSignals(False)
-        self._update_appearance_description()
         if persist:
             try:
                 self._appearance_store.save(self._appearance)
             except OSError as exc:
                 logger.warning("外观设置保存失败：%s", exc)
             self._center_on_screen()
-
-    def _update_appearance_description(self) -> None:
-        if not hasattr(self, "_appearance_description"):
-            return
-        theme_text = (
-            "樱花粉、天空蓝、薄荷绿和淡桃橙的轻盈卡片配色"
-            if self._appearance.theme == SAKURA_THEME
-            else "项目最初的 Candy 粉红配色"
-        )
-        layout_text = (
-            "左侧导航、宽窗口与更充足留白"
-            if self._appearance.layout == GALLERY_LAYOUT
-            else "原始窄窗口与顶部四标签"
-        )
-        self._appearance_description.setText(
-            f"当前：{theme_text}；{layout_text}。主题与布局可独立搭配。"
-        )
-
-    @Slot()
-    def _on_appearance_changed(self) -> None:
-        previous_layout = self._appearance.layout
-        theme = self._theme_selector.currentData()
-        layout = self._layout_selector.currentData()
-        if not isinstance(theme, str) or not isinstance(layout, str):
-            return
-        self._appearance = AppearanceSettings(theme=theme, layout=layout)
-        self._apply_appearance(
-            persist=True, fit_layout=layout != previous_layout
-        )
-
-    @Slot()
-    def _restore_classic_appearance(self) -> None:
-        self._appearance = AppearanceSettings(
-            theme=CLASSIC_THEME, layout=CLASSIC_LAYOUT
-        )
-        self._apply_appearance(persist=True, fit_layout=True)
 
     @staticmethod
     def _readonly_field(value: str) -> QLineEdit:
@@ -783,6 +830,7 @@ class MainWindow(QMainWindow):
         entry = self._macro_entries[row]
         if not entry.valid or entry.macro is None:
             return
+        enabled = not entry.macro.enabled
         try:
             # 不依赖当前选中行：源码同样允许直接点击任意行的状态开关。
             self._macro_panel.update_trigger_settings(
@@ -791,10 +839,15 @@ class MainWindow(QMainWindow):
                 mode=entry.macro.mode,
                 count=entry.macro.count,
                 speed=entry.macro.speed,
-                enabled=not entry.macro.enabled,
+                enabled=enabled,
             )
         except MacroFileError as exc:
             QMessageBox.warning(self, "保存触发设置失败", str(exc))
+            return
+        self._osd_popup.show_notification(
+            f"{entry.macro.name} 已{'启用' if enabled else '禁用'}",
+            success=enabled,
+        )
 
     def _set_trigger_fields_enabled(self, enabled: bool) -> None:
         for field in (self._trigger_hotkey_field, self._trigger_mode_field, self._trigger_count_field, self._trigger_speed_field, self._trigger_status_field):
@@ -813,6 +866,8 @@ class MainWindow(QMainWindow):
             self._trigger_hotkey_field.set_hotkey(entry.macro.hotkey)
             QMessageBox.warning(self, "保存触发设置失败", "该按键已是全局启停键，请换一个键。")
             return
+        enabled = bool(self._trigger_status_field.currentData())
+        status_changed = enabled != entry.macro.enabled
         try:
             self._macro_panel.update_trigger_settings(
                 entry.path,
@@ -820,10 +875,16 @@ class MainWindow(QMainWindow):
                 mode=self._trigger_mode_field.currentData(),
                 count=self._trigger_count_field.value(),
                 speed=self._trigger_speed_field.value(),
-                enabled=bool(self._trigger_status_field.currentData()),
+                enabled=enabled,
             )
         except MacroFileError as exc:
             QMessageBox.warning(self, "保存触发设置失败", str(exc))
+            return
+        if status_changed:
+            self._osd_popup.show_notification(
+                f"{entry.macro.name} 已{'启用' if enabled else '禁用'}",
+                success=enabled,
+            )
 
     def _load_global_hotkey(self) -> str:
         try:
@@ -1067,6 +1128,1093 @@ class MainWindow(QMainWindow):
         self._quick_click_interval.valueChanged.connect(self._save_quick_click_settings)
         return page
 
+    def _build_combo_development_page(self) -> QWidget:
+        page = QWidget()
+        page_layout = QVBoxLayout(page)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setObjectName("combo_development_scroll_area")
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(30, 24, 30, 24)
+        layout.setSpacing(16)
+
+        heading = QLabel("开发连招 · 原生回放工作台")
+        heading.setObjectName("combo_development_heading")
+        heading.setStyleSheet("font-size: 20px; font-weight: 700; color: #A84F6D;")
+        layout.addWidget(heading)
+        summary = QLabel(
+            "未来将由 MyAutoPlayer 自己完成游戏画面、声音和物理按键时间线记录，"
+            "不会调用 OBS。战斗时只运行一份编码，保存后生成独立外挂字幕。"
+        )
+        summary.setWordWrap(True)
+        summary.setObjectName("combo_development_summary")
+        layout.addWidget(summary)
+
+        settings_group = QGroupBox("回放设置")
+        settings_form = QFormLayout(settings_group)
+        settings_form.setHorizontalSpacing(18)
+        settings_form.setVerticalSpacing(12)
+
+        detected_core = self._native_replay_controller.executable_for(
+            self._replay_settings
+        )
+        self._replay_core_path = QLineEdit(
+            str(detected_core) if detected_core is not None else "未找到录像核心"
+        )
+        self._replay_core_path.setObjectName("replay_core_path")
+        self._replay_core_path.setReadOnly(True)
+        self._choose_replay_core_button = QPushButton("选择录像核心")
+        self._choose_replay_core_button.setObjectName("choose_replay_core_button")
+        self._auto_replay_core_button = QPushButton("自动检测")
+        self._auto_replay_core_button.setObjectName("auto_replay_core_button")
+        core_row = QWidget()
+        core_layout = QHBoxLayout(core_row)
+        core_layout.setContentsMargins(0, 0, 0, 0)
+        core_layout.addWidget(self._replay_core_path, 1)
+        core_layout.addWidget(self._choose_replay_core_button)
+        core_layout.addWidget(self._auto_replay_core_button)
+        settings_form.addRow("录像核心", core_row)
+
+        self._replay_save_directory = QLineEdit(str(self._replay_settings.save_directory))
+        self._replay_save_directory.setObjectName("replay_save_directory")
+        self._replay_save_directory.setReadOnly(True)
+        self._replay_save_directory.setToolTip(str(self._replay_settings.save_directory))
+        self._choose_replay_directory_button = QPushButton("选择保存目录")
+        self._choose_replay_directory_button.setObjectName("choose_replay_directory_button")
+        self._open_replay_directory_button = QPushButton("打开视频保存目录")
+        self._open_replay_directory_button.setObjectName("open_replay_directory_button")
+        directory_row = QWidget()
+        directory_layout = QHBoxLayout(directory_row)
+        directory_layout.setContentsMargins(0, 0, 0, 0)
+        directory_layout.addWidget(self._replay_save_directory, 1)
+        directory_layout.addWidget(self._choose_replay_directory_button)
+        directory_layout.addWidget(self._open_replay_directory_button)
+        settings_form.addRow("视频保存地址", directory_row)
+
+        self._replay_duration = QComboBox()
+        self._replay_duration.setObjectName("replay_duration_selector")
+        for minutes in REPLAY_DURATIONS:
+            self._replay_duration.addItem(f"保留过去 {minutes} 分钟", minutes)
+        self._select_combo_data(self._replay_duration, self._replay_settings.duration_minutes)
+        settings_form.addRow("回放时长", self._replay_duration)
+
+        self._replay_monitor = QComboBox()
+        self._replay_monitor.setObjectName("replay_monitor_selector")
+        screens = QApplication.screens()
+        for index, screen in enumerate(screens, start=1):
+            size = screen.geometry().size()
+            self._replay_monitor.addItem(
+                f"显示器 {index}：{screen.name()}（{size.width()}×{size.height()}）",
+                index,
+            )
+        if self._replay_monitor.count() == 0:
+            self._replay_monitor.addItem("显示器 1（全局桌面）", 1)
+        self._select_combo_data(
+            self._replay_monitor, self._replay_settings.monitor_index
+        )
+        settings_form.addRow("录制画面", self._replay_monitor)
+
+        self._replay_quality = QComboBox()
+        self._replay_quality.setObjectName("replay_quality_selector")
+        for quality in REPLAY_QUALITIES:
+            suffix = "（性能优先默认）" if quality == "1080p" else ""
+            self._replay_quality.addItem(f"{quality}{suffix}", quality)
+        self._select_combo_data(self._replay_quality, self._replay_settings.quality)
+        settings_form.addRow("录制清晰度", self._replay_quality)
+
+        self._replay_fps = QComboBox()
+        self._replay_fps.setObjectName("replay_fps_selector")
+        for fps in REPLAY_FRAME_RATES:
+            suffix = "（性能测试推荐）" if fps == 15 else ""
+            self._replay_fps.addItem(f"{fps} 帧/秒{suffix}", fps)
+        self._select_combo_data(self._replay_fps, self._replay_settings.fps)
+        settings_form.addRow("录制帧率", self._replay_fps)
+
+        self._replay_encoder_mode = QComboBox()
+        self._replay_encoder_mode.setObjectName("replay_encoder_mode_selector")
+        encoder_labels = {
+            "gpu": "GPU 硬件编码（推荐，性能优先）",
+            "cpu": "CPU 软件编码（兼容模式，占用较高）",
+        }
+        for encoder_mode in REPLAY_ENCODER_MODES:
+            self._replay_encoder_mode.addItem(encoder_labels[encoder_mode], encoder_mode)
+        self._select_combo_data(self._replay_encoder_mode, self._replay_settings.encoder_mode)
+        self._replay_encoder_mode.setToolTip(
+            "GPU 不可用时程序会明确报错，不会偷偷切换到 CPU；需要 CPU 时请手动选择。"
+        )
+        settings_form.addRow("编码模式", self._replay_encoder_mode)
+
+        self._record_microphone = QCheckBox("录制麦克风声音（可选，默认关闭）")
+        self._record_microphone.setObjectName("record_microphone_checkbox")
+        self._record_microphone.setChecked(self._replay_settings.record_microphone)
+        self._record_microphone.setToolTip(
+            "开启后使用你选择的麦克风，并作为独立音轨保存；关闭时只录桌面声音。"
+        )
+        microphone_row = QWidget()
+        microphone_layout = QVBoxLayout(microphone_row)
+        microphone_layout.setContentsMargins(0, 0, 0, 0)
+        microphone_layout.setSpacing(3)
+        microphone_layout.addWidget(self._record_microphone)
+        microphone_device_row = QWidget()
+        microphone_device_layout = QHBoxLayout(microphone_device_row)
+        microphone_device_layout.setContentsMargins(0, 0, 0, 0)
+        self._microphone_device_name = QLineEdit(
+            self._replay_settings.microphone_device_name or "系统默认麦克风"
+        )
+        self._microphone_device_name.setObjectName("microphone_device_name")
+        self._microphone_device_name.setReadOnly(True)
+        self._choose_microphone_device_button = QPushButton("选择麦克风设备")
+        self._choose_microphone_device_button.setObjectName(
+            "choose_microphone_device_button"
+        )
+        microphone_device_layout.addWidget(self._microphone_device_name, 1)
+        microphone_device_layout.addWidget(self._choose_microphone_device_button)
+        microphone_layout.addWidget(microphone_device_row)
+        microphone_gain_row = QWidget()
+        microphone_gain_layout = QHBoxLayout(microphone_gain_row)
+        microphone_gain_layout.setContentsMargins(0, 0, 0, 0)
+        self._microphone_gain = QSlider(Qt.Orientation.Horizontal)
+        self._microphone_gain.setObjectName("microphone_gain_slider")
+        self._microphone_gain.setRange(0, 200)
+        self._microphone_gain.setValue(self._replay_settings.microphone_gain_percent)
+        self._microphone_gain_value = QLabel(
+            f"{self._replay_settings.microphone_gain_percent}%"
+        )
+        self._microphone_gain_value.setObjectName("microphone_gain_value")
+        microphone_gain_layout.addWidget(QLabel("麦克风音量"))
+        microphone_gain_layout.addWidget(self._microphone_gain, 1)
+        microphone_gain_layout.addWidget(self._microphone_gain_value)
+        microphone_layout.addWidget(microphone_gain_row)
+        microphone_note = QLabel(
+            "麦克风开启时将作为独立音轨 2 保存；桌面/游戏声音固定为独立音轨 1。"
+        )
+        microphone_note.setObjectName("record_microphone_status")
+        microphone_note.setWordWrap(True)
+        microphone_layout.addWidget(microphone_note)
+        settings_form.addRow("麦克风", microphone_row)
+        layout.addWidget(settings_group)
+
+        audio_status_group = QGroupBox("实时声音状态")
+        audio_status_layout = QFormLayout(audio_status_group)
+        self._desktop_audio_meter = QProgressBar()
+        self._desktop_audio_meter.setObjectName("desktop_audio_meter")
+        self._desktop_audio_meter.setRange(0, 100)
+        self._desktop_audio_meter.setValue(0)
+        self._desktop_audio_meter.setFormat("正在启动设备预检")
+        self._microphone_audio_meter = QProgressBar()
+        self._microphone_audio_meter.setObjectName("microphone_audio_meter")
+        self._microphone_audio_meter.setRange(0, 100)
+        self._microphone_audio_meter.setValue(0)
+        self._microphone_audio_meter.setFormat("正在启动设备预检")
+        audio_status_layout.addRow("桌面声音（音轨 1）", self._desktop_audio_meter)
+        audio_status_layout.addRow("麦克风（音轨 2）", self._microphone_audio_meter)
+        audio_preview_note = QLabel(
+            "未录制时只检测桌面声和所选麦克风的真实音量，不保存声音；开始录像后才按上方设置写入音轨。"
+        )
+        audio_preview_note.setObjectName("audio_preview_note")
+        audio_preview_note.setWordWrap(True)
+        audio_status_layout.addRow("设备预检", audio_preview_note)
+        layout.addWidget(audio_status_group)
+
+        key_window_group = QGroupBox("实时按键窗口")
+        key_window_layout = QVBoxLayout(key_window_group)
+        key_window_help = QLabel(
+            "在桌面右上角显示常用物理按键；按下会高亮，并显示按住和松开毫秒。"
+        )
+        key_window_help.setWordWrap(True)
+        key_window_layout.addWidget(key_window_help)
+        key_window_actions = QHBoxLayout()
+        self._open_key_monitor_button = QPushButton("打开按键记录窗口")
+        self._open_key_monitor_button.setObjectName("open_key_monitor_button")
+        self._configure_key_monitor_button = QPushButton("设置显示按键")
+        self._configure_key_monitor_button.setObjectName("configure_key_monitor_button")
+        key_window_actions.addWidget(self._open_key_monitor_button)
+        key_window_actions.addWidget(self._configure_key_monitor_button)
+        key_window_actions.addStretch(1)
+        key_window_layout.addLayout(key_window_actions)
+        layout.addWidget(key_window_group)
+
+        controls_group = QGroupBox("原生录像核心")
+        controls_layout = QVBoxLayout(controls_group)
+        native_available = detected_core is not None
+        self._native_replay_status = QLabel(
+            f"原生录像核心已就绪：{detected_core}。将录制所选显示器的全局画面和全局物理按键。"
+            if native_available
+            else "尚未找到录像核心。请点击“选择录像核心”，选择 myautoplayer-native-replay.exe。"
+        )
+        self._native_replay_status.setObjectName("native_replay_status")
+        self._native_replay_status.setWordWrap(True)
+        controls_layout.addWidget(self._native_replay_status)
+        control_row = QHBoxLayout()
+        self._start_native_replay_button = QPushButton("开始")
+        self._start_native_replay_button.setObjectName("start_native_replay_button")
+        self._start_native_replay_button.setEnabled(native_available)
+        self._save_native_replay_button = QPushButton("保留过往")
+        self._save_native_replay_button.setObjectName("save_native_replay_button")
+        self._save_native_replay_button.setEnabled(False)
+        control_row.addWidget(self._start_native_replay_button)
+        control_row.addWidget(self._save_native_replay_button)
+        self._recording_indicator = QPushButton("● 未录制")
+        self._recording_indicator.setObjectName("recording_indicator")
+        self._recording_indicator.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._recording_indicator.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
+        )
+        self._recording_indicator.setToolTip("开始录制后会持续闪烁，仅用于提示状态")
+        control_row.addWidget(self._recording_indicator)
+        control_row.addStretch(1)
+        controls_layout.addLayout(control_row)
+        layout.addWidget(controls_group)
+
+        history_group = QGroupBox("历史录像")
+        history_layout = QVBoxLayout(history_group)
+        self._replay_history_summary = QLabel(
+            "按日期读取当前视频保存地址；播放原始视频时，同名 raw.ass 可由支持的播放器自动载入。"
+        )
+        self._replay_history_summary.setObjectName("replay_history_summary")
+        self._replay_history_summary.setWordWrap(True)
+        history_layout.addWidget(self._replay_history_summary)
+        self._replay_history_table = QTableWidget(0, 7)
+        self._replay_history_table.setObjectName("replay_history_table")
+        self._replay_history_table.setHorizontalHeaderLabels(
+            ["保存时间", "会话名称", "实际时长", "画面", "编码器", "音轨", "状态"]
+        )
+        self._replay_history_table.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers
+        )
+        self._replay_history_table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self._replay_history_table.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection
+        )
+        self._replay_history_table.setAlternatingRowColors(True)
+        self._replay_history_table.verticalHeader().setVisible(False)
+        self._replay_history_table.setMinimumHeight(220)
+        history_header = self._replay_history_table.horizontalHeader()
+        history_header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        history_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        for column in range(2, 7):
+            history_header.setSectionResizeMode(
+                column, QHeaderView.ResizeMode.ResizeToContents
+            )
+        history_layout.addWidget(self._replay_history_table)
+        history_actions = QHBoxLayout()
+        self._refresh_replay_history_button = QPushButton("刷新历史")
+        self._refresh_replay_history_button.setObjectName(
+            "refresh_replay_history_button"
+        )
+        self._play_replay_history_button = QPushButton("播放原始视频")
+        self._play_replay_history_button.setObjectName("play_replay_history_button")
+        self._open_replay_subtitle_button = QPushButton("打开外挂字幕")
+        self._open_replay_subtitle_button.setObjectName("open_replay_subtitle_button")
+        self._open_replay_session_button = QPushButton("打开会话目录")
+        self._open_replay_session_button.setObjectName("open_replay_session_button")
+        self._delete_replay_history_button = QPushButton("删除所选会话")
+        self._delete_replay_history_button.setObjectName(
+            "delete_replay_history_button"
+        )
+        history_actions.addWidget(self._refresh_replay_history_button)
+        history_actions.addWidget(self._play_replay_history_button)
+        history_actions.addWidget(self._open_replay_subtitle_button)
+        history_actions.addWidget(self._open_replay_session_button)
+        history_actions.addWidget(self._delete_replay_history_button)
+        history_actions.addStretch(1)
+        history_layout.addLayout(history_actions)
+        layout.addWidget(history_group)
+        layout.addStretch(1)
+        scroll.setWidget(content)
+        page_layout.addWidget(scroll)
+
+        self._choose_replay_directory_button.clicked.connect(self._choose_replay_directory)
+        self._open_replay_directory_button.clicked.connect(self._open_replay_directory)
+        self._choose_replay_core_button.clicked.connect(self._choose_replay_core)
+        self._auto_replay_core_button.clicked.connect(self._auto_detect_replay_core)
+        self._replay_duration.currentIndexChanged.connect(self._save_replay_settings)
+        self._replay_monitor.currentIndexChanged.connect(self._save_replay_settings)
+        self._replay_quality.currentIndexChanged.connect(self._save_replay_settings)
+        self._replay_fps.currentIndexChanged.connect(self._save_replay_settings)
+        self._replay_encoder_mode.currentIndexChanged.connect(self._save_replay_settings)
+        self._record_microphone.toggled.connect(self._save_replay_settings)
+        self._microphone_gain.valueChanged.connect(self._on_microphone_gain_changed)
+        self._choose_microphone_device_button.clicked.connect(
+            self._choose_microphone_device
+        )
+        self._start_native_replay_button.clicked.connect(self._toggle_native_replay)
+        self._save_native_replay_button.clicked.connect(self._save_native_replay)
+        self._refresh_replay_history_button.clicked.connect(
+            self._refresh_replay_history
+        )
+        self._play_replay_history_button.clicked.connect(
+            self._play_selected_replay_history
+        )
+        self._open_replay_subtitle_button.clicked.connect(
+            self._open_selected_replay_subtitle
+        )
+        self._open_replay_session_button.clicked.connect(
+            self._open_selected_replay_directory
+        )
+        self._delete_replay_history_button.clicked.connect(
+            self._delete_selected_replay_history
+        )
+        self._replay_history_table.itemSelectionChanged.connect(
+            self._update_replay_history_actions
+        )
+        self._open_key_monitor_button.clicked.connect(self._open_key_monitor)
+        self._configure_key_monitor_button.clicked.connect(
+            self._configure_key_monitor
+        )
+        self._refresh_replay_history()
+        return page
+
+    def _ensure_key_monitor(self) -> KeyMonitorWindow:
+        if self._key_monitor_window is None:
+            self._key_monitor_window = KeyMonitorWindow()
+            self._key_monitor_window.closed.connect(self._on_key_monitor_closed)
+        return self._key_monitor_window
+
+    def _open_key_monitor(self) -> None:
+        monitor = self._ensure_key_monitor()
+        hotkey_manager = getattr(self, "_hotkey_mgr", None)
+        if hotkey_manager is not None:
+            hotkey_manager.add_physical_observer(monitor.observe_input)
+        monitor.show()
+        monitor.raise_()
+
+    def _on_key_monitor_closed(self) -> None:
+        monitor = self._key_monitor_window
+        hotkey_manager = getattr(self, "_hotkey_mgr", None)
+        if monitor is not None and hotkey_manager is not None:
+            hotkey_manager.remove_physical_observer(monitor.observe_input)
+        self._key_monitor_window = None
+
+    def _configure_key_monitor(self) -> None:
+        self._open_key_monitor()
+        monitor = self._ensure_key_monitor()
+        dialog = QDialog(self)
+        dialog.setWindowTitle("设置按键记录窗口")
+        dialog.resize(460, 640)
+        layout = QVBoxLayout(dialog)
+        note = QLabel(
+            "常用键首次默认勾选，也可以按你的习惯取消。"
+            "再次打开时，所有勾选状态都会保留；额外键排列在鼠标右侧。"
+        )
+        note.setWordWrap(True)
+        layout.addWidget(note)
+
+        recent_row = QHBoxLayout()
+        recent_row.addWidget(QLabel("最近事件显示："))
+        recent_count = QComboBox()
+        recent_count.setObjectName("key_monitor_recent_count")
+        for count in RECENT_COUNTS:
+            recent_count.addItem(f"{count} 个", count)
+        recent_count.setCurrentIndex(recent_count.findData(monitor.recent_count))
+        recent_row.addWidget(recent_count)
+        recent_row.addStretch(1)
+        layout.addLayout(recent_row)
+
+        appearance_form = QFormLayout()
+        detail_background = QComboBox()
+        detail_background.setObjectName("key_monitor_detail_background")
+        for preset, (label, _rgb) in DETAIL_BACKGROUND_PRESETS.items():
+            detail_background.addItem(label, preset)
+        detail_background.setCurrentIndex(
+            detail_background.findData(monitor.detail_background)
+        )
+        appearance_form.addRow("详情板块背景：", detail_background)
+
+        detail_opacity = QSlider(Qt.Orientation.Horizontal)
+        detail_opacity.setObjectName("key_monitor_detail_opacity")
+        detail_opacity.setRange(0, 100)
+        detail_opacity.setValue(monitor.detail_opacity)
+        detail_opacity_value = QLabel(f"{monitor.detail_opacity}%")
+        detail_opacity.valueChanged.connect(
+            lambda value: detail_opacity_value.setText(f"{value}%")
+        )
+        detail_opacity_row = QHBoxLayout()
+        detail_opacity_row.addWidget(detail_opacity, 1)
+        detail_opacity_row.addWidget(detail_opacity_value)
+        appearance_form.addRow("板块深浅：", detail_opacity_row)
+
+        window_opacity = QSlider(Qt.Orientation.Horizontal)
+        window_opacity.setObjectName("key_monitor_window_opacity")
+        window_opacity.setRange(0, 100)
+        window_opacity.setValue(monitor.window_opacity)
+        window_opacity_value = QLabel(f"{monitor.window_opacity}%")
+        window_opacity.valueChanged.connect(
+            lambda value: window_opacity_value.setText(f"{value}%")
+        )
+        window_opacity_row = QHBoxLayout()
+        window_opacity_row.addWidget(window_opacity, 1)
+        window_opacity_row.addWidget(window_opacity_value)
+        appearance_form.addRow("整体窗口透明度：", window_opacity_row)
+        layout.addLayout(appearance_form)
+
+        layout.addWidget(QLabel("显示按键（最多32个）："))
+        key_list = QListWidget()
+        key_list.setObjectName("key_monitor_selected_keys")
+        key_list.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        current = set(monitor.keys)
+        available = list(
+            dict.fromkeys(
+                (*DEFAULT_MONITOR_KEYS, *monitor.keys, *sorted(KEYBOARD_KEYS), *sorted(MOUSE_HOTKEYS))
+            )
+        )
+        for key in available:
+            item = QListWidgetItem(physical_input_name(key))
+            item.setData(Qt.ItemDataRole.UserRole, key)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+            item.setCheckState(
+                Qt.CheckState.Checked if key in current else Qt.CheckState.Unchecked
+            )
+            key_list.addItem(item)
+        layout.addWidget(key_list)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+            | QDialogButtonBox.StandardButton.Apply
+        )
+        ok_button = buttons.button(QDialogButtonBox.StandardButton.Ok)
+        cancel_button = buttons.button(QDialogButtonBox.StandardButton.Cancel)
+        apply_button = buttons.button(QDialogButtonBox.StandardButton.Apply)
+        ok_button.setText("确定")
+        cancel_button.setText("取消")
+        apply_button.setText("应用")
+        apply_button.setObjectName("key_monitor_apply_button")
+        apply_button.setEnabled(False)
+        layout.addWidget(buttons)
+
+        def control_state() -> tuple[tuple[str, ...], int, str, int, int]:
+            selected = tuple(
+                key_list.item(index).data(Qt.ItemDataRole.UserRole)
+                for index in range(key_list.count())
+                if key_list.item(index).checkState() == Qt.CheckState.Checked
+            )
+            return (
+                selected,
+                int(recent_count.currentData()),
+                str(detail_background.currentData()),
+                int(detail_opacity.value()),
+                int(window_opacity.value()),
+            )
+
+        committed_state = [
+            (
+                monitor.keys,
+                monitor.recent_count,
+                monitor.detail_background,
+                monitor.detail_opacity,
+                monitor.window_opacity,
+            )
+        ]
+
+        def preview(signal_value=None) -> None:
+            state = (
+                signal_value
+                if isinstance(signal_value, tuple) and len(signal_value) == 5
+                else control_state()
+            )
+            keys, count, background, detail_alpha, window_alpha = state
+            monitor.set_keys(keys, persist=False)
+            monitor.set_recent_count(count, persist=False)
+            monitor.set_appearance(
+                background,
+                detail_alpha,
+                window_alpha,
+                persist=False,
+            )
+            apply_button.setEnabled(control_state() != committed_state[0])
+
+        def apply_changes() -> None:
+            preview()
+            monitor.save_settings()
+            committed_state[0] = control_state()
+            apply_button.setEnabled(False)
+
+        def accept_changes() -> None:
+            apply_changes()
+            dialog.accept()
+
+        def reject_changes() -> None:
+            preview(committed_state[0])
+            apply_button.setEnabled(False)
+            dialog.reject()
+
+        recent_count.currentIndexChanged.connect(preview)
+        detail_background.currentIndexChanged.connect(preview)
+        detail_opacity.valueChanged.connect(preview)
+        window_opacity.valueChanged.connect(preview)
+        key_list.itemChanged.connect(preview)
+        apply_button.clicked.connect(apply_changes)
+        buttons.accepted.connect(accept_changes)
+        buttons.rejected.connect(reject_changes)
+
+        result = dialog.exec()
+        if result == QDialog.DialogCode.Accepted:
+            apply_changes()
+        else:
+            preview(committed_state[0])
+
+    def _toggle_native_replay(self) -> None:
+        if self._replay_save_task is not None:
+            return
+        if self._native_replay_controller.running:
+            self._native_replay_controller.request_stop()
+            self._native_replay_status.setText(
+                "正在停止录像并清空临时回放缓冲……\n"
+                "不会弹出命名窗口，也不会生成正式录像。"
+            )
+            self._start_native_replay_button.setEnabled(False)
+            self._save_native_replay_button.setEnabled(False)
+            return
+        self._audio_preview_restart_timer.stop()
+        self._audio_preview_controller.stop()
+        try:
+            session = self._native_replay_controller.start(
+                self._replay_settings
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            QMessageBox.warning(self, "无法开始原生录像", str(exc))
+            self._schedule_audio_preview_restart()
+            return
+        self._native_replay_exit_handled = False
+        hotkey_manager = getattr(self, "_hotkey_mgr", None)
+        if hotkey_manager is not None:
+            hotkey_manager.add_physical_observer(
+                self._native_replay_controller.observe_input
+            )
+        self._native_replay_status.setText(
+            f"回放缓冲正在运行：{session.directory}\n"
+            f"点击“保留过往”会保存最近 {self._replay_settings.duration_minutes} 分钟，保存时不会停止录像。"
+        )
+        self._set_replay_controls_enabled(False)
+        self._start_native_replay_button.setText("停止并清空")
+        self._save_native_replay_button.setEnabled(True)
+        self._native_replay_timer.start()
+
+    def _save_native_replay(self) -> None:
+        if not self._native_replay_controller.running or self._replay_save_task is not None:
+            return
+        session_name = self._ask_replay_session_name()
+        if session_name is None:
+            return
+        self._start_replay_export(session_name)
+
+    def _start_replay_export(self, session_name: str) -> None:
+        result: dict[str, object] = {"session": None, "error": None}
+
+        def export() -> None:
+            try:
+                result["session"] = self._native_replay_controller.save_recent(
+                    self._replay_settings,
+                    session_name,
+                    duration_minutes=self._replay_settings.duration_minutes,
+                )
+            except Exception as exc:  # surfaced in the Qt thread below
+                result["error"] = exc
+
+        thread = threading.Thread(target=export, daemon=True, name="replay-save-recent")
+        self._replay_save_task = {
+            "thread": thread,
+            "result": result,
+        }
+        self._start_native_replay_button.setEnabled(False)
+        self._save_native_replay_button.setEnabled(False)
+        self._native_replay_status.setText(
+            f"正在后台生成“{session_name}”的最近 {self._replay_settings.duration_minutes} 分钟回放……\n"
+            "录像缓冲仍在继续，不会漏掉后续操作。"
+        )
+        thread.start()
+        self._native_replay_timer.start()
+
+    def _poll_replay_export(self) -> bool:
+        task = self._replay_save_task
+        if task is None:
+            return False
+        thread = task["thread"]
+        if isinstance(thread, threading.Thread) and thread.is_alive():
+            return True
+        result = task["result"]
+        self._replay_save_task = None
+        error = result.get("error") if isinstance(result, dict) else None
+        session = result.get("session") if isinstance(result, dict) else None
+        if error is not None:
+            QMessageBox.warning(self, "保留过往失败", str(error))
+            self._native_replay_status.setText(f"保留过往失败：{error}")
+        elif session is not None:
+            self._native_replay_status.setText(
+                f"原始视频：{session.raw_video}\n"
+                f"自动样式字幕：{session.input_subtitles}\n"
+                f"兼容字幕：{session.preview_subtitles}\n"
+                "最终交付为一份原始视频和外挂字幕，不再生成 perfect.mp4。"
+            )
+            self._refresh_replay_history()
+        running = self._native_replay_controller.running
+        self._start_native_replay_button.setEnabled(running)
+        self._save_native_replay_button.setEnabled(running)
+        return False
+
+    def _poll_native_replay(self) -> None:
+        self._poll_replay_export()
+        self._update_replay_live_status()
+        if self._native_replay_controller.running:
+            return
+        if self._native_replay_exit_handled:
+            return
+        return_code = self._native_replay_controller.poll()
+        if return_code is None:
+            return
+        self._native_replay_exit_handled = True
+        hotkey_manager = getattr(self, "_hotkey_mgr", None)
+        if hotkey_manager is not None:
+            hotkey_manager.remove_physical_observer(
+                self._native_replay_controller.observe_input
+            )
+        if return_code == 0:
+            self._native_replay_controller.cleanup_buffer()
+            self._native_replay_status.setText(
+                "录像已停止，临时回放缓冲已清空。\n"
+                "只有点击“保留过往”才会命名并生成正式录像。"
+            )
+            self._start_native_replay_button.setText("再次录制")
+            self._set_replay_controls_enabled(True)
+            self._start_native_replay_button.setEnabled(True)
+            self._save_native_replay_button.setEnabled(False)
+            self._native_replay_timer.stop()
+        else:
+            buffer = self._native_replay_controller.buffer
+            log_path = buffer.native_log if buffer is not None else "未知"
+            detail = ""
+            if buffer is not None and buffer.native_log.is_file():
+                try:
+                    lines = buffer.native_log.read_text(
+                        encoding="utf-8", errors="replace"
+                    ).splitlines()
+                    if lines:
+                        detail = f"\n原因：{lines[-1]}"
+                except OSError:
+                    pass
+            self._native_replay_status.setText(
+                f"原生录像失败（退出码 {return_code}）。{detail}\n日志：{log_path}"
+            )
+            self._start_native_replay_button.setText("再次录制")
+            self._set_replay_controls_enabled(True)
+            self._start_native_replay_button.setEnabled(True)
+            self._save_native_replay_button.setEnabled(False)
+            self._native_replay_timer.stop()
+        self._schedule_audio_preview_restart()
+
+    def _ask_replay_session_name(self) -> str | None:
+        value, accepted = QInputDialog.getText(
+            self,
+            "给本次录像文件夹命名",
+            "请输入容易识别的名称。\n例如输入“秧秧完美连招”，将保存为：\n"
+            "秧秧完美连招-20260721-013628-recording",
+            QLineEdit.EchoMode.Normal,
+            "精彩连招",
+        )
+        if not accepted:
+            return None
+        try:
+            return normalise_replay_session_name(value)
+        except ValueError as exc:
+            QMessageBox.warning(self, "录像文件夹名称无效", str(exc))
+            return None
+
+    def _set_replay_controls_enabled(self, enabled: bool) -> None:
+        """Keep one rolling buffer internally compatible from start to stop."""
+        for control in (
+            self._replay_duration,
+            self._replay_monitor,
+            self._replay_quality,
+            self._replay_fps,
+            self._replay_encoder_mode,
+            self._record_microphone,
+            self._choose_microphone_device_button,
+            self._microphone_gain,
+            self._choose_replay_directory_button,
+            self._choose_replay_core_button,
+            self._auto_replay_core_button,
+        ):
+            control.setEnabled(enabled)
+
+    def _save_replay_settings(self, *_unused) -> None:
+        previous_save_directory = self._replay_settings.save_directory
+        try:
+            saved = self._replay_settings_store.save(
+                ReplaySettings(
+                    Path(self._replay_save_directory.text()),
+                    int(self._replay_duration.currentData()),
+                    str(self._replay_quality.currentData()),
+                    str(self._replay_encoder_mode.currentData()),
+                    int(self._replay_fps.currentData()),
+                    int(self._replay_monitor.currentData()),
+                    self._replay_settings.core_path,
+                    self._record_microphone.isChecked(),
+                    self._replay_settings.microphone_device_id,
+                    self._replay_settings.microphone_device_name,
+                    int(self._microphone_gain.value()),
+                )
+            )
+        except (OSError, UnicodeError, ValueError) as exc:
+            QMessageBox.warning(self, "回放设置未保存", str(exc))
+            return
+        self._replay_settings = saved
+        self._replay_save_directory.setText(str(saved.save_directory))
+        self._replay_save_directory.setToolTip(str(saved.save_directory))
+        if (
+            saved.save_directory != previous_save_directory
+            and hasattr(self, "_replay_history_table")
+        ):
+            self._refresh_replay_history()
+        self._schedule_audio_preview_restart()
+
+    def _on_microphone_gain_changed(self, value: int) -> None:
+        self._microphone_gain_value.setText(f"{value}%")
+        self._save_replay_settings()
+
+    def _schedule_audio_preview_restart(self) -> None:
+        if os.environ.get("MYAUTOPLAYER_DISABLE_AUDIO") == "1":
+            return
+        if self._native_replay_controller.running:
+            return
+        self._audio_preview_restart_timer.start()
+
+    def _start_audio_preview(self) -> None:
+        if os.environ.get("MYAUTOPLAYER_DISABLE_AUDIO") == "1":
+            return
+        if self._native_replay_controller.running:
+            return
+        try:
+            self._audio_preview_controller.start(self._replay_settings)
+        except (OSError, RuntimeError, ValueError) as exc:
+            self._audio_preview_error = str(exc)
+        else:
+            self._audio_preview_error = None
+        self._native_replay_timer.start()
+
+    def _update_replay_live_status(self) -> None:
+        running = self._native_replay_controller.running
+        if running:
+            self._recording_flash_ticks = (self._recording_flash_ticks + 1) % 5
+            if self._recording_flash_ticks == 0:
+                self._recording_flash_on = not self._recording_flash_on
+            if self._recording_flash_on:
+                self._recording_indicator.setText("● 正在录制")
+                self._recording_indicator.setStyleSheet(
+                    "QPushButton { color: white; background: #D85C82; border: 1px solid #F5B6CA; font-weight: 700; }"
+                )
+            else:
+                self._recording_indicator.setText("◉ 正在录制")
+                self._recording_indicator.setStyleSheet(
+                    "QPushButton { color: #7D314C; background: #FBE3EC; border: 1px solid #DDA0B5; font-weight: 700; }"
+                )
+            desktop_level, microphone_level = self._native_replay_controller.audio_levels()
+            self._desktop_audio_meter.setValue(desktop_level)
+            self._desktop_audio_meter.setFormat(
+                f"桌面有声音 · {desktop_level}%" if desktop_level else "桌面静音 · 0%"
+            )
+            self._microphone_audio_meter.setValue(microphone_level)
+            if self._replay_settings.record_microphone:
+                self._microphone_audio_meter.setFormat(
+                    f"麦克风有声音 · {microphone_level}%" if microphone_level else "麦克风静音 · 0%"
+                )
+            else:
+                self._microphone_audio_meter.setFormat("未录制")
+        else:
+            self._recording_flash_on = False
+            self._recording_flash_ticks = 0
+            self._recording_indicator.setText("● 未录制")
+            self._recording_indicator.setStyleSheet("")
+            preview_return_code = self._audio_preview_controller.poll()
+            if preview_return_code not in (None, 0):
+                self._audio_preview_error = self._audio_preview_controller.last_error
+            if self._audio_preview_controller.running:
+                desktop_level, microphone_level = self._audio_preview_controller.audio_levels()
+                self._desktop_audio_meter.setValue(desktop_level)
+                self._desktop_audio_meter.setFormat(
+                    f"设备预检 · {desktop_level}% · 不保存"
+                )
+                self._microphone_audio_meter.setValue(microphone_level)
+                microphone_action = "录像时保存" if self._replay_settings.record_microphone else "当前不保存"
+                self._microphone_audio_meter.setFormat(
+                    f"设备预检 · {microphone_level}% · {microphone_action}"
+                )
+            else:
+                self._desktop_audio_meter.setValue(0)
+                self._microphone_audio_meter.setValue(0)
+                status = self._audio_preview_error or "正在启动设备预检"
+                self._desktop_audio_meter.setFormat(status)
+                self._microphone_audio_meter.setFormat(status)
+
+    def _choose_microphone_device(self) -> None:
+        try:
+            devices = list_microphone_devices()
+        except Exception as exc:
+            QMessageBox.warning(self, "无法读取麦克风设备", str(exc))
+            return
+        if not devices:
+            QMessageBox.warning(
+                self,
+                "没有可用麦克风",
+                "Windows 当前没有返回可用的麦克风输入设备，请检查连接和麦克风权限。",
+            )
+            return
+        labels: list[str] = []
+        occurrences: dict[str, int] = {}
+        for device in devices:
+            base = f"{device.name}（系统默认）" if device.is_default else device.name
+            occurrences[base] = occurrences.get(base, 0) + 1
+            suffix = f"（{occurrences[base]}）" if occurrences[base] > 1 else ""
+            labels.append(base + suffix)
+        current_index = next(
+            (
+                index
+                for index, device in enumerate(devices)
+                if device.identifier == self._replay_settings.microphone_device_id
+            ),
+            0,
+        )
+        selected, accepted = QInputDialog.getItem(
+            self,
+            "选择麦克风设备",
+            "请选择录制语音时使用的麦克风：",
+            labels,
+            current_index,
+            False,
+        )
+        if not accepted:
+            return
+        device = devices[labels.index(selected)]
+        self._replay_settings = self._replay_settings_store.save(
+            ReplaySettings(
+                self._replay_settings.save_directory,
+                self._replay_settings.duration_minutes,
+                self._replay_settings.quality,
+                self._replay_settings.encoder_mode,
+                self._replay_settings.fps,
+                self._replay_settings.monitor_index,
+                self._replay_settings.core_path,
+                self._replay_settings.record_microphone,
+                device.identifier,
+                device.name,
+                self._replay_settings.microphone_gain_percent,
+            )
+        )
+        self._microphone_device_name.setText(device.name)
+        self._microphone_device_name.setToolTip(device.name)
+        self._schedule_audio_preview_restart()
+
+    def _choose_replay_core(self) -> None:
+        selected, _filter = QFileDialog.getOpenFileName(
+            self,
+            "选择原生录像核心",
+            str(self._replay_settings.core_path or application_root()),
+            "录像核心 (myautoplayer-native-replay.exe);;Windows 程序 (*.exe)",
+        )
+        if not selected:
+            return
+        path = Path(selected).resolve()
+        if path.name.casefold() != "myautoplayer-native-replay.exe":
+            QMessageBox.warning(
+                self, "录像核心无效", "请选择 myautoplayer-native-replay.exe"
+            )
+            return
+        self._replay_settings = self._replay_settings_store.save(
+            ReplaySettings(
+                self._replay_settings.save_directory,
+                self._replay_settings.duration_minutes,
+                self._replay_settings.quality,
+                self._replay_settings.encoder_mode,
+                self._replay_settings.fps,
+                self._replay_settings.monitor_index,
+                path,
+                self._replay_settings.record_microphone,
+                self._replay_settings.microphone_device_id,
+                self._replay_settings.microphone_device_name,
+                self._replay_settings.microphone_gain_percent,
+            )
+        )
+        self._refresh_replay_core_status()
+        self._schedule_audio_preview_restart()
+
+    def _auto_detect_replay_core(self) -> None:
+        self._replay_settings = self._replay_settings_store.save(
+            ReplaySettings(
+                self._replay_settings.save_directory,
+                self._replay_settings.duration_minutes,
+                self._replay_settings.quality,
+                self._replay_settings.encoder_mode,
+                self._replay_settings.fps,
+                self._replay_settings.monitor_index,
+                None,
+                self._replay_settings.record_microphone,
+                self._replay_settings.microphone_device_id,
+                self._replay_settings.microphone_device_name,
+                self._replay_settings.microphone_gain_percent,
+            )
+        )
+        self._refresh_replay_core_status()
+        self._schedule_audio_preview_restart()
+
+    def _refresh_replay_core_status(self) -> None:
+        core = self._native_replay_controller.executable_for(self._replay_settings)
+        if core is None:
+            self._replay_core_path.setText("未找到录像核心")
+            self._native_replay_status.setText(
+                "尚未找到录像核心。请点击“选择录像核心”。"
+            )
+            self._start_native_replay_button.setEnabled(False)
+            return
+        self._replay_core_path.setText(str(core))
+        self._native_replay_status.setText(
+            f"录像核心已就绪：{core}。将录制所选显示器的全局画面和全局物理按键。"
+        )
+        self._start_native_replay_button.setEnabled(True)
+
+    def _choose_replay_directory(self) -> None:
+        selected = QFileDialog.getExistingDirectory(
+            self,
+            "选择视频保存目录",
+            str(self._replay_settings.save_directory),
+        )
+        if not selected:
+            return
+        self._replay_save_directory.setText(selected)
+        self._save_replay_settings()
+
+    def _open_replay_directory(self) -> None:
+        folder = self._replay_settings.save_directory
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            QMessageBox.warning(self, "无法打开视频保存目录", str(exc))
+            return
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder.resolve()))):
+            QMessageBox.warning(self, "无法打开视频保存目录", str(folder.resolve()))
+
+    def _refresh_replay_history(self) -> None:
+        selected = self._selected_replay_history_entry()
+        selected_path = selected.directory if selected is not None else None
+        self._replay_history_store = ReplayHistoryStore(
+            self._replay_settings.save_directory
+        )
+        self._replay_history_entries = self._replay_history_store.scan()
+        table = self._replay_history_table
+        table.setRowCount(len(self._replay_history_entries))
+        selected_row = -1
+        for row, entry in enumerate(self._replay_history_entries):
+            values = (
+                entry.saved_at_text,
+                entry.display_name,
+                entry.duration_text,
+                entry.video_format_text,
+                entry.encoder,
+                entry.audio_text,
+                entry.status,
+            )
+            tooltip = (
+                f"会话目录：{entry.directory}\n"
+                f"按键事件：{entry.event_count if entry.event_count is not None else '未知'} 条"
+            )
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setToolTip(tooltip)
+                table.setItem(row, column, item)
+            if selected_path is not None and entry.directory == selected_path:
+                selected_row = row
+        if selected_row >= 0:
+            table.selectRow(selected_row)
+        else:
+            table.clearSelection()
+        count = len(self._replay_history_entries)
+        self._replay_history_summary.setText(
+            f"当前保存地址共找到 {count} 个录像会话，最新记录排在最上方。"
+            if count
+            else "当前保存地址还没有录像会话；点击“保留过往”成功后会自动出现在这里。"
+        )
+        self._update_replay_history_actions()
+
+    def _selected_replay_history_entry(self) -> ReplayHistoryEntry | None:
+        table = getattr(self, "_replay_history_table", None)
+        entries = getattr(self, "_replay_history_entries", ())
+        if table is None:
+            return None
+        rows = table.selectionModel().selectedRows()
+        if not rows:
+            return None
+        row = rows[0].row()
+        return entries[row] if 0 <= row < len(entries) else None
+
+    def _update_replay_history_actions(self) -> None:
+        entry = self._selected_replay_history_entry()
+        self._play_replay_history_button.setEnabled(
+            entry is not None and entry.raw_video.is_file()
+        )
+        self._open_replay_subtitle_button.setEnabled(
+            entry is not None and entry.subtitle_path is not None
+        )
+        self._open_replay_session_button.setEnabled(entry is not None)
+        self._delete_replay_history_button.setEnabled(entry is not None)
+
+    @staticmethod
+    def _open_history_path(path: Path, title: str, parent: QWidget) -> None:
+        if not path.exists():
+            QMessageBox.warning(parent, title, f"文件或目录已经不存在：\n{path}")
+            return
+        try:
+            resolved = path.resolve()
+        except OSError as exc:
+            QMessageBox.warning(parent, title, str(exc))
+            return
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(resolved))):
+            QMessageBox.warning(parent, title, f"Windows 无法打开：\n{resolved}")
+
+    def _play_selected_replay_history(self) -> None:
+        entry = self._selected_replay_history_entry()
+        if entry is not None:
+            self._open_history_path(entry.raw_video, "无法播放原始视频", self)
+
+    def _open_selected_replay_subtitle(self) -> None:
+        entry = self._selected_replay_history_entry()
+        if entry is None:
+            return
+        subtitle = entry.subtitle_path
+        if subtitle is None:
+            QMessageBox.warning(self, "无法打开外挂字幕", "所选会话没有 ASS 或 SRT 字幕")
+            return
+        self._open_history_path(subtitle, "无法打开外挂字幕", self)
+
+    def _open_selected_replay_directory(self) -> None:
+        entry = self._selected_replay_history_entry()
+        if entry is not None:
+            self._open_history_path(entry.directory, "无法打开会话目录", self)
+
+    def _delete_selected_replay_history(self) -> None:
+        entry = self._selected_replay_history_entry()
+        if entry is None:
+            return
+        answer = QMessageBox.question(
+            self,
+            "确认删除录像会话",
+            f"确定将下面这个完整录像会话移入 Windows 回收站吗？\n\n"
+            f"{entry.directory.name}\n\n"
+            "原始视频、外挂字幕、按键日志和元数据会一起移动。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            self._replay_history_store.move_to_recycle_bin(entry)
+        except ReplayHistoryError as exc:
+            QMessageBox.warning(self, "删除录像会话失败", str(exc))
+            return
+        self._refresh_replay_history()
+
     @staticmethod
     def _disabled_combo(value: str) -> QComboBox:
         combo = QComboBox()
@@ -1107,44 +2255,93 @@ class MainWindow(QMainWindow):
         self._osd_enabled_field.setChecked(self._osd_popup.popup_enabled)
         self._osd_enabled_field.toggled.connect(self._osd_popup.set_enabled)
         layout.addRow("OSD", self._osd_enabled_field)
+        self._osd_size_field = RoseSpinBox()
+        self._osd_size_field.setObjectName("osd_size_field")
+        self._osd_size_field.setRange(10, 72)
+        self._osd_size_field.setSuffix(" px")
+        self._osd_size_field.setValue(self._osd_popup.popup_size)
+        self._osd_size_field.valueChanged.connect(self._osd_popup.set_size)
+        layout.addRow("OSD 文字大小", self._osd_size_field)
+        self._osd_background_field = QCheckBox("显示淡色半透明背景")
+        self._osd_background_field.setObjectName("osd_background_field")
+        self._osd_background_field.setChecked(
+            self._osd_popup.popup_background_enabled
+        )
+        self._osd_background_field.toggled.connect(
+            self._osd_popup.set_background_enabled
+        )
+        layout.addRow("OSD 背景", self._osd_background_field)
         self._sound_enabled_field = QCheckBox("启用提示音（默认开启）")
         self._sound_enabled_field.setChecked(self._sound_effects.enabled)
         self._sound_enabled_field.toggled.connect(self._sound_effects.set_enabled)
         layout.addRow("提示音", self._sound_enabled_field)
-        self._theme_selector = QComboBox()
-        self._theme_selector.setObjectName("theme_selector")
-        for label, value in THEME_OPTIONS:
-            self._theme_selector.addItem(label, value)
-        self._select_combo_data(self._theme_selector, self._appearance.theme)
-        layout.addRow("主题", self._theme_selector)
-        self._layout_selector = QComboBox()
-        self._layout_selector.setObjectName("layout_selector")
-        for label, value in LAYOUT_OPTIONS:
-            self._layout_selector.addItem(label, value)
-        self._select_combo_data(self._layout_selector, self._appearance.layout)
-        layout.addRow("界面布局", self._layout_selector)
-        self._appearance_description = QLabel()
-        self._appearance_description.setObjectName("appearance_description")
-        self._appearance_description.setWordWrap(True)
-        layout.addRow("外观说明", self._appearance_description)
-        self._restore_appearance_button = QPushButton("恢复经典外观")
-        self._restore_appearance_button.setObjectName("restore_classic_appearance")
-        self._restore_appearance_button.setToolTip(
-            "一次恢复经典粉红主题和经典顶部标签"
-        )
-        layout.addRow("快速恢复", self._restore_appearance_button)
+        self._clear_logs_button = QPushButton("删除过往日志")
+        self._clear_logs_button.setObjectName("clear_historical_logs_button")
+        self._clear_logs_button.setToolTip("可选择清理 30 天、5 天或 1 天以前的日志；今天日志不会删除")
+        self._open_logs_button = QPushButton("打开日志文件夹")
+        self._open_logs_button.setObjectName("open_logs_folder_button")
+        self._open_logs_button.setToolTip("在资源管理器中浏览并手动管理日志")
+        log_actions = QWidget()
+        log_actions_layout = QHBoxLayout(log_actions)
+        log_actions_layout.setContentsMargins(0, 0, 0, 0)
+        log_actions_layout.addWidget(self._clear_logs_button)
+        log_actions_layout.addWidget(self._open_logs_button)
+        layout.addRow("日志管理", log_actions)
         info = QLabel(_INSTRUCTION_TEXT)
         info.setWordWrap(True)
         layout.addRow("使用说明", info)
         scroll.setWidget(content)
         page_layout.addWidget(scroll)
-        self._theme_selector.currentIndexChanged.connect(self._on_appearance_changed)
-        self._layout_selector.currentIndexChanged.connect(self._on_appearance_changed)
-        self._restore_appearance_button.clicked.connect(
-            self._restore_classic_appearance
-        )
-        self._update_appearance_description()
+        self._clear_logs_button.clicked.connect(self._clear_historical_logs)
+        self._open_logs_button.clicked.connect(self._open_log_folder)
         return page
+
+    def _clear_historical_logs(self) -> None:
+        choices = {
+            "删除超过一个月的日志（30 天前及更早）": 30,
+            "删除超过 5 天的日志（5 天前及更早）": 5,
+            "删除超过 1 天的日志（只保留今天）": 1,
+        }
+        selected, accepted = QInputDialog.getItem(
+            self,
+            "选择日志清理范围",
+            "今天的日志始终保留，请选择：",
+            list(choices),
+            0,
+            False,
+        )
+        if not accepted:
+            return
+        retention_days = choices[selected]
+        answer = QMessageBox.question(
+            self,
+            "删除过往日志",
+            f"确定执行“{selected}”吗？\n今天正在使用的日志不会删除。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            removed = clear_logs_older_than(retention_days)
+        except OSError as exc:
+            QMessageBox.warning(self, "日志清理失败", str(exc))
+            return
+        QMessageBox.information(
+            self,
+            "日志清理完成",
+            f"已删除 {removed} 个历史日志文件。\n今天的日志仍然保留。",
+        )
+
+    def _open_log_folder(self) -> None:
+        folder = log_root()
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            QMessageBox.warning(self, "无法打开日志文件夹", str(exc))
+            return
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder.resolve()))):
+            QMessageBox.warning(self, "无法打开日志文件夹", str(folder.resolve()))
 
     def _setup_hotkey(self) -> None:
         self._hotkey_mgr = HotkeyManager(int(self.winId()))
@@ -1163,6 +2360,25 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         logger.info("程序退出")
+        if getattr(self, "_key_monitor_window", None) is not None:
+            monitor = self._key_monitor_window
+            if self._hotkey_mgr:
+                self._hotkey_mgr.remove_physical_observer(monitor.observe_input)
+            monitor.close()
+            self._key_monitor_window = None
+        if getattr(self, "_native_replay_timer", None):
+            self._native_replay_timer.stop()
+        if getattr(self, "_audio_preview_restart_timer", None):
+            self._audio_preview_restart_timer.stop()
+        if getattr(self, "_audio_preview_controller", None):
+            self._audio_preview_controller.stop()
+        if getattr(self, "_native_replay_controller", None):
+            if self._hotkey_mgr:
+                self._hotkey_mgr.remove_physical_observer(
+                    self._native_replay_controller.observe_input
+                )
+            self._native_replay_controller.stop()
+            self._native_replay_controller.cleanup_buffer()
         if self._hotkey_mgr:
             self._hotkey_mgr.stop()
         if getattr(self, "_quick_click_controller", None):
@@ -1212,26 +2428,108 @@ def _set_windows_app_identity() -> None:
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(_WINDOWS_APP_ID)
 
 
+def install_chinese_qt_translator(app: QApplication) -> bool:
+    """统一翻译 Qt 标准弹窗按钮，例如 OK/Cancel/Yes/No。"""
+    translator = QTranslator(app)
+    translations = QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath)
+    loaded = translator.load("qt_zh_CN", translations) or translator.load(
+        "qtbase_zh_CN", translations
+    )
+    if not loaded:
+        logger.warning("未找到 Qt 简体中文翻译文件：%s", translations)
+        return False
+    app.installTranslator(translator)
+    app._myautoplayer_chinese_translator = translator
+    return True
+
+
 def show_startup_window(window: QMainWindow) -> None:
-    """启动时把窗口带到前台一次，不改变之后的最小化或隐藏语义。"""
+    """首次/重复启动时先保证可见，再尝试取得键盘前台焦点。"""
     window.show()
     _activate_startup_window(window)
     QTimer.singleShot(0, lambda: _activate_startup_window(window))
+    QTimer.singleShot(160, lambda: _activate_startup_window(window))
+    QTimer.singleShot(900, lambda: _release_startup_topmost(window))
 
 
 def _activate_startup_window(window: QMainWindow) -> None:
-    window.raise_()
-    window.activateWindow()
+    try:
+        window.raise_()
+        window.activateWindow()
+    except RuntimeError:
+        return
     if sys.platform != "win32" or not hasattr(window, "winId"):
         return
     try:
         hwnd = int(window.winId())
         user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+        user32.ShowWindow.argtypes = (wintypes.HWND, ctypes.c_int)
+        user32.ShowWindow.restype = wintypes.BOOL
+        user32.SetWindowPos.argtypes = (
+            wintypes.HWND,
+            wintypes.HWND,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            wintypes.UINT,
+        )
+        user32.SetWindowPos.restype = wintypes.BOOL
+        user32.GetForegroundWindow.restype = wintypes.HWND
+        user32.GetWindowThreadProcessId.argtypes = (
+            wintypes.HWND,
+            ctypes.POINTER(wintypes.DWORD),
+        )
+        user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+        user32.AttachThreadInput.argtypes = (
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.BOOL,
+        )
+        user32.AttachThreadInput.restype = wintypes.BOOL
+        user32.BringWindowToTop.argtypes = (wintypes.HWND,)
+        user32.BringWindowToTop.restype = wintypes.BOOL
+        user32.SetActiveWindow.argtypes = (wintypes.HWND,)
+        user32.SetActiveWindow.restype = wintypes.HWND
+        user32.SetForegroundWindow.argtypes = (wintypes.HWND,)
+        user32.SetForegroundWindow.restype = wintypes.BOOL
+        kernel32.GetCurrentThreadId.restype = wintypes.DWORD
+        user32.ShowWindow(hwnd, 9)  # SW_RESTORE
         flags = 0x0001 | 0x0002 | 0x0040  # NOSIZE | NOMOVE | SHOWWINDOW
-        user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, flags)  # 临时前置
-        user32.SetForegroundWindow(hwnd)
-        user32.SetWindowPos(hwnd, -2, 0, 0, 0, 0, flags)  # 恢复非永久置顶
-    except (AttributeError, OSError, TypeError):
+        user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, flags)  # HWND_TOPMOST
+        foreground = user32.GetForegroundWindow()
+        current_thread = kernel32.GetCurrentThreadId()
+        foreground_thread = (
+            user32.GetWindowThreadProcessId(foreground, None) if foreground else 0
+        )
+        attached = False
+        if foreground_thread and foreground_thread != current_thread:
+            attached = bool(
+                user32.AttachThreadInput(current_thread, foreground_thread, True)
+            )
+        try:
+            user32.BringWindowToTop(hwnd)
+            user32.SetActiveWindow(hwnd)
+            focused = bool(user32.SetForegroundWindow(hwnd))
+            if not focused:
+                logger.info("Windows 暂未授予启动前台焦点；窗口已临时置顶保证可见")
+        finally:
+            if attached:
+                user32.AttachThreadInput(current_thread, foreground_thread, False)
+    except (AttributeError, OSError, RuntimeError, TypeError):
+        pass
+
+
+def _release_startup_topmost(window: QMainWindow) -> None:
+    """结束短暂置顶，不改变用户之后的普通窗口层级。"""
+    if sys.platform != "win32" or not hasattr(window, "winId"):
+        return
+    try:
+        hwnd = int(window.winId())
+        flags = 0x0001 | 0x0002 | 0x0010  # NOSIZE | NOMOVE | NOACTIVATE
+        ctypes.windll.user32.SetWindowPos(hwnd, -2, 0, 0, 0, 0, flags)
+    except (AttributeError, OSError, RuntimeError, TypeError):
         pass
 
 
@@ -1241,13 +2539,13 @@ def main() -> int:
     _set_windows_app_identity()
     instance = SingleInstanceGuard()
     if not instance.acquire():
-        show_already_running_message()
         return 0
     try:
         setup_logging()
         logger.info("自动连招启动")
         macro_runtime = PythonMacroRuntime()
         app = QApplication(sys.argv)
+        install_chinese_qt_translator(app)
         qt_ready = time.perf_counter()
         app.setApplicationName(_APP_TITLE)
         app.setWindowIcon(application_icon())
@@ -1256,6 +2554,14 @@ def main() -> int:
         window = MainWindow(macro_runtime)
         window_ready = time.perf_counter()
         show_startup_window(window)
+        activation_timer = QTimer(window)
+        activation_timer.setInterval(100)
+        activation_timer.timeout.connect(
+            lambda: show_startup_window(window)
+            if instance.consume_activation_request()
+            else None
+        )
+        activation_timer.start()
         logger.info(
             "启动耗时：导入与 Qt %.0fms，窗口与 hook %.0fms，总计 %.0fms",
             (qt_ready - startup_started) * 1000,

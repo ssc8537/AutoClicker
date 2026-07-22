@@ -10,7 +10,8 @@
 | 程序目录 | `my-automation-tool/` |
 | 源码入口 | `my-automation-tool/main.py` |
 | 运行依赖 | `my-automation-tool/requirements.txt` |
-| 构建依赖 | `my-automation-tool/requirements-build.txt` |
+| Python构建依赖 | `my-automation-tool/requirements-build.txt` |
+| 原生录像构建 | `my-automation-tool/native-replay/BUILDING.md` |
 | 支持系统 | Windows 10/11 64 位；主要验收环境为 Windows 11 |
 | 推荐 Python | 64 位 CPython 3.12–3.14；当前发布环境为 Python 3.14.2 |
 | 当前验证版本 | PySide6 6.11.1、pynput 1.8.2、keyboard 0.13.5 |
@@ -75,7 +76,7 @@ AI 接手后按顺序执行，不猜目录、不运行用户宏：
 5. 创建 `.venv`，使用 `.venv\Scripts\python.exe` 安装运行依赖。
 6. 运行单元测试和 `compileall`。失败时先报告准确测试名；不得为了全绿擅自改动用户宏状态。
 7. 只启动 `main.py` 检查 GUI；未经用户授权，不启用全局自动化、不执行真实宏、不进入游戏测试。
-8. 成功标准：程序显示“自动连招”窗口；宏库、触发、功能、设置四页存在；窗口可正常关闭；`logs/app.log` 没有启动异常。
+8. 成功标准：程序显示“自动连招”窗口；宏库、触发、功能、开发连招、设置五页存在；窗口可正常关闭；`logs/app.log`没有启动异常。没有编译原生核心时，录像页应明确提示“未找到录像核心”，不能冒充录像成功。
 
 AI 可直接执行的 PowerShell：
 
@@ -111,6 +112,12 @@ $python = (Resolve-Path .\.venv\Scripts\python.exe).Path
 & .\.venv\Scripts\python.exe -m pip install -r .\my-automation-tool\requirements-build.txt
 ```
 
+正式包还必须先具备`C:\MAPL-Native-Replay\`下的Rust/MSVC工具链。固定路径、构建命令和清理方法见：
+
+```text
+my-automation-tool\native-replay\BUILDING.md
+```
+
 在仓库根目录运行：
 
 ```powershell
@@ -127,12 +134,13 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
 my-automation-tool\dist\MyAutoPlayer\MyAutoPlayer.exe
 ```
 
-构建为文件夹式便携版，包含管理员清单、统一图标、提示音、头像、当前 `config/` 和 `macros/`。`build/`、`dist/`、`.spec` 是本地生成物，不上传 GitHub。
+构建为文件夹式便携版，包含管理员清单、统一图标、提示音、头像、原生录像核心、可交付`config/`和当前`macros/`。本机生成的`replay_settings.json`、`key_monitor.json`和`ai_prompt.complete.md`会从正式包排除，避免泄露绝对路径、设备选择和窗口位置。`build/`、`dist/`、`.spec`是本地生成物，不上传GitHub。
 
 ## 6. 可写数据与备份
 
 - `my-automation-tool/macros/`：用户连招源码，只运行可信文件。
 - `my-automation-tool/config/`：全局键、快捷连点、主题/布局、共享动作和 AI 提示词。
+- `my-automation-tool/captures/`：原始视频、外挂字幕、按键日志和会话元数据；默认不上传GitHub。
 - `my-automation-tool/logs/app.log`：排障日志；日志被 `.gitignore` 排除。
 - 删除或覆盖 `macros/`、`config/` 前必须先得到用户明确授权。
 
@@ -163,4 +171,15 @@ my-automation-tool\dist\MyAutoPlayer\MyAutoPlayer.exe
 
 ### 第二次启动提示程序已经运行
 
-这是单实例保护。先从现有窗口或托盘正常退出，不要启动多个监听实例。
+这是单实例保护。新版会唤醒并前置已经运行的窗口；仍找不到时检查任务栏和托盘，再从现有窗口正常退出，不要启动多个监听实例。
+
+### 开发连招提示“未找到录像核心”
+
+普通用户应使用完整文件夹式便携包，并确认下面两个文件同时存在：
+
+```text
+MyAutoPlayer.exe
+native-replay\myautoplayer-native-replay.exe
+```
+
+源码开发者请按`my-automation-tool\native-replay\BUILDING.md`编译；`build_native_replay.ps1`是构建脚本，不是录像启动入口。

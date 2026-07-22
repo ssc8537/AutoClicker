@@ -22,6 +22,19 @@ class SingleInstanceTests(unittest.TestCase):
             second.release()
             third.release()
 
+    def test_second_launch_notifies_the_running_instance(self):
+        name = rf"Local\MyAutoPlayer.tests.activate.{os.getpid()}.{uuid4().hex}"
+        first = SingleInstanceGuard(name)
+        second = SingleInstanceGuard(name)
+        try:
+            self.assertTrue(first.acquire())
+            self.assertFalse(second.acquire())
+            self.assertTrue(first.consume_activation_request())
+            self.assertFalse(first.consume_activation_request())
+        finally:
+            first.release()
+            second.release()
+
 
 if __name__ == "__main__":
     unittest.main()

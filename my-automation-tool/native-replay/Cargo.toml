@@ -1,0 +1,22 @@
+[package]
+name = "myautoplayer-native-replay"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+mp4 = "0.14.0"
+wasapi = "0.23.0"
+windows-capture = { path = "third_party/windows-capture" }
+windows = { version = "0.62.2", features = [
+    "Win32_Foundation",
+    "Win32_Media_MediaFoundation",
+    "Win32_System_Com",
+    "Win32_System_Performance",
+] }
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+panic = "abort"
+strip = true

@@ -370,12 +370,16 @@ class MacroLibraryPanel(QWidget):
         content = self._build_ai_prompt_content()
         dialog = self._ai_prompt_dialog
         if dialog is None:
-            dialog = AiPromptDialog(self, content.text, content.load)
+            dialog = AiPromptDialog(
+                self, content.text, content.load, content.complete_path
+            )
             dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
             dialog.destroyed.connect(lambda *_: setattr(self, "_ai_prompt_dialog", None))
             self._ai_prompt_dialog = dialog
         else:
-            dialog.update_prompt(content.text, content.load)
+            dialog.update_prompt(
+                content.text, content.load, content.complete_path
+            )
         dialog.show()
         dialog.raise_()
         dialog.activateWindow()

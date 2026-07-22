@@ -14,13 +14,17 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QLabel,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QGroupBox,
     QLineEdit,
     QListWidget,
     QMainWindow,
     QMessageBox,
+    QProgressBar,
     QPushButton,
     QScrollArea,
+    QSlider,
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -28,6 +32,7 @@ from PySide6.QtWidgets import (
     QStyleOptionViewItem,
     QStyleOptionSpinBox,
     QHBoxLayout,
+    QInputDialog,
     QVBoxLayout,
     QWidget,
 )
@@ -40,17 +45,17 @@ from src.ui.game_keybinds_panel import GameKeybindsPanel
 from src.ui.appearance import (
     AppearanceSettings,
     AppearanceSettingsStore,
-    CLASSIC_LAYOUT,
-    CLASSIC_THEME,
-    GALLERY_LAYOUT,
-    SAKURA_THEME,
 )
 from src.ui.table_selection import PreserveForegroundSelectionDelegate
 from src.ui.window_chrome import VerticalResizeHandle, WindowTitleBar
+from src.ui.rose_spin_box import RoseSpinBox
 from src.core.macro_file_manager import MacroFileError
 from src.core.hotkey_manager import TriggerMode
+from src.core.audio_devices import MicrophoneDevice
+from src.core.replay_settings import ReplaySettingsStore
+from src.ui.key_monitor_window import DEFAULT_MONITOR_KEYS, KeyMonitorWindow
 
-from main import MainWindow
+from main import MainWindow, install_chinese_qt_translator, macro_run_notification
 from src.core.script_engine import PythonMacroRuntime
 
 
@@ -70,17 +75,38 @@ class UiShellTests(unittest.TestCase):
             Path(self.appearance_directory.name) / "settings.json"
         )
         self.window._appearance = AppearanceSettings()
+        self.replay_directory = Path(self.appearance_directory.name) / "captures"
+        self.window._replay_settings_store = ReplaySettingsStore(
+            Path(self.appearance_directory.name) / "replay_settings.json",
+            self.replay_directory,
+        )
+        self.window._replay_settings = self.window._replay_settings_store.load()
         self.window._setup_ui()
+
+    def test_macro_run_notification_shows_finite_and_infinite_counts(self):
+        self.assertEqual(
+            macro_run_notification("今汐连招", 1),
+            "今汐连招 宏运行中 · 循环 1 次",
+        )
+        self.assertEqual(
+            macro_run_notification("今汐连招", 3),
+            "今汐连招 宏运行中 · 循环 3 次",
+        )
+        self.assertEqual(
+            macro_run_notification("今汐连招", 0),
+            "今汐连招 宏运行中 · 循环 +∞",
+        )
 
     def tearDown(self):
         self.window.deleteLater()
         self.appearance_directory.cleanup()
 
-    def test_window_is_fixed_width_and_vertically_resizable(self):
+    def test_gallery_window_starts_wide_and_is_resizable(self):
         self.assertFalse(self.window.windowIcon().isNull())
-        self.assertEqual(self.window.width(), 642)
-        self.assertEqual(self.window.minimumWidth(), 642)
-        self.assertGreater(self.window.maximumWidth(), 642)
+        expected_width = min(840, self.app.primaryScreen().availableGeometry().width())
+        self.assertEqual(self.window.width(), expected_width)
+        self.assertEqual(self.window.minimumWidth(), 760)
+        self.assertGreaterEqual(self.window.maximumWidth(), expected_width)
         self.assertEqual(self.window.minimumHeight(), 510)
         self.assertGreaterEqual(self.window.maximumHeight(), 510)
         screen = QApplication.primaryScreen()
@@ -104,6 +130,7 @@ class UiShellTests(unittest.TestCase):
 
     def test_right_edge_resize_handle_changes_window_width(self):
         self.window.show()
+        self.window.resize(760, self.window.height())
         resize_handle = self.window.findChild(QWidget, "window_resize_right")
         self.assertIsNotNone(resize_handle)
         original_width = self.window.width()
@@ -122,11 +149,14 @@ class UiShellTests(unittest.TestCase):
         self.assertGreater(self.window.width(), original_width)
         self.assertEqual(self.window.height(), original_height)
 
-    def test_four_tabs_default_to_macro_library(self):
+    def test_five_gallery_pages_default_to_macro_library(self):
         tabs = self.window.findChild(QTabWidget, "main_tabs")
         self.assertIsNotNone(tabs)
         self.assertEqual(tabs.currentIndex(), 0)
-        self.assertEqual([tabs.tabText(index) for index in range(tabs.count())], ["宏库", "触发", "功能", "设置"])
+        self.assertEqual(
+            [tabs.tabText(index) for index in range(tabs.count())],
+            ["宏库", "触发", "功能", "开发连招", "设置"],
+        )
         tabs.setCurrentIndex(2)
         self.assertEqual(tabs.currentIndex(), 2)
 
@@ -134,7 +164,7 @@ class UiShellTests(unittest.TestCase):
         table = self.window.findChild(QTableWidget, "trigger_table")
         self.assertGreater(table.columnWidth(1), table.columnWidth(2))
         self.assertGreater(table.columnWidth(1), table.columnWidth(4))
-        self.assertEqual(table.columnWidth(4), 44)
+        self.assertEqual(table.columnWidth(4), 54)
         self.assertEqual(
             table.horizontalHeader().sectionResizeMode(1),
             table.horizontalHeader().ResizeMode.Stretch,
@@ -205,6 +235,9 @@ class UiShellTests(unittest.TestCase):
 
             self.assertEqual(table.item(target_row, 4).text(), "禁用")
             self.assertIn("ENABLED = False", target.read_text(encoding="utf-8"))
+            window._osd_popup.show_notification.assert_called_with(
+                "second 已禁用", success=False
+            )
             self.assertEqual(table.selectionModel().selectedRows()[0].row(), target_row)
             window.close()
 
@@ -331,14 +364,46 @@ class UiShellTests(unittest.TestCase):
 
     def test_settings_page_has_osd_switch_and_unclipped_status_dot(self):
         osd = self.window.findChild(QCheckBox, "osd_enabled_field")
+        osd_size = self.window.findChild(RoseSpinBox, "osd_size_field")
+        osd_background = self.window.findChild(QCheckBox, "osd_background_field")
         status = self.window.findChild(QLabel, "global_status_label")
+        clear_logs = self.window.findChild(QPushButton, "clear_historical_logs_button")
+        open_logs = self.window.findChild(QPushButton, "open_logs_folder_button")
         self.assertIsNotNone(osd)
         self.assertEqual(osd.text(), "显示 OSD 屏幕提示")
+        self.assertEqual((osd_size.minimum(), osd_size.maximum()), (10, 72))
+        self.assertEqual(osd_background.text(), "显示淡色半透明背景")
         self.assertEqual(status.text(), "● 热键已启用")
+        self.assertEqual(clear_logs.text(), "删除过往日志")
+        self.assertEqual(open_logs.text(), "打开日志文件夹")
+
+    def test_clear_logs_button_requires_confirmation_and_reports_result(self):
+        button = self.window.findChild(QPushButton, "clear_historical_logs_button")
+        with patch(
+            "main.QInputDialog.getItem",
+            return_value=("删除超过 5 天的日志（5 天前及更早）", True),
+        ), patch.object(
+            QMessageBox,
+            "question",
+            return_value=QMessageBox.StandardButton.Yes,
+        ), patch("main.clear_logs_older_than", return_value=3) as cleanup, patch.object(
+            QMessageBox, "information"
+        ) as information:
+            button.click()
+        cleanup.assert_called_once_with(5)
+        self.assertIn("已删除 3 个历史日志文件", information.call_args.args[2])
+
+    def test_open_logs_button_opens_the_real_log_root(self):
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "main.log_root", return_value=Path(directory) / "logs"
+        ), patch("main.QDesktopServices.openUrl", return_value=True) as open_url:
+            self.window.findChild(QPushButton, "open_logs_folder_button").click()
+        self.assertTrue(open_url.call_args.args[0].isLocalFile())
+        self.assertTrue(open_url.call_args.args[0].toLocalFile().endswith("logs"))
 
     def test_mature_rose_theme_is_applied(self):
         stylesheet = self.window.styleSheet()
-        for color in ("#FCF7FA", "#C984A1", "#6E4055", "#D8D0D6"):
+        for color in ("#F7FBFF", "#F3A8BE", "#8CCFE8", "#A8DEC5"):
             self.assertIn(color, stylesheet)
 
     def test_macro_sequence_numbers_are_centered(self):
@@ -351,21 +416,13 @@ class UiShellTests(unittest.TestCase):
             table.item(0, 0).textAlignment(), int(Qt.AlignmentFlag.AlignCenter)
         )
 
-    def test_theme_and_layout_switch_independently_and_restore_classic(self):
-        theme = self.window.findChild(QComboBox, "theme_selector")
-        layout = self.window.findChild(QComboBox, "layout_selector")
+    def test_only_sakura_gallery_remains_and_development_page_is_in_sidebar(self):
         side_panel = self.window.findChild(QWidget, "side_panel")
         side_navigation = self.window.findChild(QListWidget, "side_navigation")
-        self.assertEqual(theme.currentData(), CLASSIC_THEME)
-        self.assertEqual(layout.currentData(), CLASSIC_LAYOUT)
-
-        theme.setCurrentIndex(theme.findData(SAKURA_THEME))
-        self.app.processEvents()
+        self.assertIsNone(self.window.findChild(QComboBox, "theme_selector"))
+        self.assertIsNone(self.window.findChild(QComboBox, "layout_selector"))
+        self.assertIsNone(self.window.findChild(QPushButton, "restore_classic_appearance"))
         self.assertIn("#F3A8BE", self.window.styleSheet())
-        self.assertEqual(self.window.width(), 642)
-
-        layout.setCurrentIndex(layout.findData(GALLERY_LAYOUT))
-        self.app.processEvents()
         self.assertEqual(
             self.window.width(),
             min(840, self.app.primaryScreen().availableGeometry().width()),
@@ -373,6 +430,10 @@ class UiShellTests(unittest.TestCase):
         self.assertLessEqual(side_panel.width(), 108)
         self.assertFalse(side_panel.isHidden())
         self.assertTrue(self.window._tabs.tabBar().isHidden())
+        self.assertEqual(
+            [side_navigation.item(index).text() for index in range(side_navigation.count())],
+            ["宏库", "触发", "功能", "开发连招", "设置"],
+        )
         self.assertTrue(
             all(
                 side_navigation.item(index).textAlignment()
@@ -383,14 +444,419 @@ class UiShellTests(unittest.TestCase):
         avatar = self.window.findChild(QLabel, "gallery_avatar")
         self.assertIsNotNone(avatar.pixmap())
         self.assertFalse(avatar.pixmap().isNull())
+        side_navigation.setCurrentRow(3)
+        self.assertEqual(self.window._tabs.currentIndex(), 3)
 
-        self.window.findChild(QPushButton, "restore_classic_appearance").click()
+    def test_development_page_shows_saves_and_opens_video_directory(self):
+        path_field = self.window.findChild(QLineEdit, "replay_save_directory")
+        duration = self.window.findChild(QComboBox, "replay_duration_selector")
+        quality = self.window.findChild(QComboBox, "replay_quality_selector")
+        fps = self.window.findChild(QComboBox, "replay_fps_selector")
+        monitor = self.window.findChild(QComboBox, "replay_monitor_selector")
+        core_path = self.window.findChild(QLineEdit, "replay_core_path")
+        open_key_monitor = self.window.findChild(QPushButton, "open_key_monitor_button")
+        configure_key_monitor = self.window.findChild(QPushButton, "configure_key_monitor_button")
+        encoder_mode = self.window.findChild(QComboBox, "replay_encoder_mode_selector")
+        microphone = self.window.findChild(QCheckBox, "record_microphone_checkbox")
+        microphone_name = self.window.findChild(QLineEdit, "microphone_device_name")
+        choose_microphone = self.window.findChild(
+            QPushButton, "choose_microphone_device_button"
+        )
+        self.assertEqual(path_field.text(), str(self.replay_directory.resolve()))
+        self.assertEqual(duration.currentData(), 10)
+        self.assertEqual(quality.currentData(), "1080p")
+        self.assertEqual(encoder_mode.currentData(), "gpu")
+        self.assertFalse(microphone.isChecked())
+        self.assertEqual(microphone_name.text(), "系统默认麦克风")
+        self.assertEqual(choose_microphone.text(), "选择麦克风设备")
+        self.assertEqual(fps.currentData(), 30)
+        self.assertEqual([fps.itemData(i) for i in range(fps.count())], [15, 30, 45, 60])
+        self.assertEqual([quality.itemData(i) for i in range(quality.count())], ["720p", "1080p"])
+        self.assertEqual(monitor.currentData(), 1)
+        self.assertTrue(core_path.text())
+        self.assertEqual(open_key_monitor.text(), "打开按键记录窗口")
+        self.assertEqual(configure_key_monitor.text(), "设置显示按键")
+        self.assertEqual(
+            self.window.findChild(QPushButton, "start_native_replay_button").isEnabled()
+            , self.window._native_replay_controller.available
+        )
+        duration.setCurrentIndex(duration.findData(30))
+        quality.setCurrentIndex(quality.findData("720p"))
+        fps.setCurrentIndex(fps.findData(15))
+        encoder_mode.setCurrentIndex(encoder_mode.findData("cpu"))
+        microphone.setChecked(True)
+        self.assertEqual(self.window._replay_settings.duration_minutes, 30)
+        self.assertEqual(self.window._replay_settings.quality, "720p")
+        self.assertEqual(self.window._replay_settings.fps, 15)
+        self.assertEqual(self.window._replay_settings.encoder_mode, "cpu")
+        self.assertTrue(self.window._replay_settings.record_microphone)
+        self.assertTrue(self.window._replay_settings_store.load().record_microphone)
+
+        selected = Path(self.appearance_directory.name) / "自定义视频"
+        with patch("main.QFileDialog.getExistingDirectory", return_value=str(selected)):
+            self.window.findChild(QPushButton, "choose_replay_directory_button").click()
+        self.assertEqual(path_field.text(), str(selected.resolve()))
+        with patch("main.QDesktopServices.openUrl", return_value=True) as open_url:
+            self.window.findChild(QPushButton, "open_replay_directory_button").click()
+        self.assertTrue(selected.is_dir())
+        self.assertEqual(
+            Path(open_url.call_args.args[0].toLocalFile()).resolve(), selected.resolve()
+        )
+
+    def test_replay_history_lists_and_opens_the_selected_session(self):
+        session = (
+            self.replay_directory
+            / "2026-07-22"
+            / "今汐精彩连招-20260722-090825-recording"
+        )
+        session.mkdir(parents=True)
+        (session / "raw.mp4").write_bytes(b"video")
+        (session / "raw.ass").write_text("subtitle", encoding="utf-8")
+        (session / "metadata.json").write_text(
+            '{"saved_at":"2026-07-22T09:08:25.000","actual_duration_ms":65200,'
+            '"quality":"1080p","requested_fps":30,"encoder_mode":"gpu",'
+            '"audio_track_count":2,"event_count":19}',
+            encoding="utf-8",
+        )
+        self.window._refresh_replay_history()
+        table = self.window.findChild(QTableWidget, "replay_history_table")
+        self.assertEqual(table.rowCount(), 1)
+        self.assertEqual(table.item(0, 0).text(), "2026-07-22 09:08:25")
+        self.assertEqual(table.item(0, 1).text(), "今汐精彩连招")
+        self.assertEqual(table.item(0, 2).text(), "1:05")
+        self.assertEqual(table.item(0, 3).text(), "1080p / 30fps")
+        self.assertEqual(table.item(0, 5).text(), "2 条")
+        self.assertEqual(table.item(0, 6).text(), "可播放")
+        table.selectRow(0)
         self.app.processEvents()
-        self.assertEqual(theme.currentData(), CLASSIC_THEME)
-        self.assertEqual(layout.currentData(), CLASSIC_LAYOUT)
-        self.assertEqual(self.window.width(), 642)
-        self.assertTrue(side_panel.isHidden())
-        self.assertFalse(self.window._tabs.tabBar().isHidden())
+
+        actions = (
+            ("play_replay_history_button", session / "raw.mp4"),
+            ("open_replay_subtitle_button", session / "raw.ass"),
+            ("open_replay_session_button", session),
+        )
+        for object_name, expected in actions:
+            with self.subTest(object_name=object_name), patch(
+                "main.QDesktopServices.openUrl", return_value=True
+            ) as open_url:
+                self.window.findChild(QPushButton, object_name).click()
+                self.assertEqual(
+                    Path(open_url.call_args.args[0].toLocalFile()).resolve(),
+                    expected.resolve(),
+                )
+
+    def test_replay_history_delete_requires_confirmation_and_uses_store(self):
+        session = (
+            self.replay_directory
+            / "2026-07-22"
+            / "待删除-20260722-091000-recording"
+        )
+        session.mkdir(parents=True)
+        (session / "raw.mp4").write_bytes(b"video")
+        (session / "metadata.json").write_text("{}", encoding="utf-8")
+        self.window._refresh_replay_history()
+        table = self.window.findChild(QTableWidget, "replay_history_table")
+        delete_button = self.window.findChild(
+            QPushButton, "delete_replay_history_button"
+        )
+        self.assertFalse(delete_button.isEnabled())
+        table.selectRow(0)
+        self.app.processEvents()
+        self.assertTrue(delete_button.isEnabled())
+
+        with patch(
+            "main.QMessageBox.question", return_value=QMessageBox.StandardButton.No
+        ), patch.object(
+            self.window._replay_history_store, "move_to_recycle_bin"
+        ) as recycle:
+            delete_button.click()
+        recycle.assert_not_called()
+
+        with patch(
+            "main.QMessageBox.question", return_value=QMessageBox.StandardButton.Yes
+        ), patch.object(
+            self.window._replay_history_store, "move_to_recycle_bin"
+        ) as recycle:
+            delete_button.click()
+        recycle.assert_called_once()
+        self.assertTrue(session.is_dir())
+
+    def test_successful_replay_export_refreshes_history(self):
+        thread = Mock()
+        thread.is_alive.return_value = False
+        session = SimpleNamespace(
+            raw_video=Path("C:/capture/raw.mp4"),
+            input_subtitles=Path("C:/capture/raw.ass"),
+            preview_subtitles=Path("C:/capture/input_subtitles.srt"),
+        )
+        self.window._replay_save_task = {
+            "thread": thread,
+            "result": {"session": session, "error": None},
+        }
+        self.window._native_replay_controller = Mock(running=True)
+        with patch.object(self.window, "_refresh_replay_history") as refresh:
+            self.assertFalse(self.window._poll_replay_export())
+        refresh.assert_called_once_with()
+
+    def test_microphone_device_button_lists_and_persists_selected_device(self):
+        devices = (
+            MicrophoneDevice("default-id", "USB 麦克风", True),
+            MicrophoneDevice("mix-id", "立体声混音", False),
+        )
+        with patch("main.list_microphone_devices", return_value=devices), patch(
+            "main.QInputDialog.getItem",
+            return_value=("立体声混音", True),
+        ):
+            self.window.findChild(
+                QPushButton, "choose_microphone_device_button"
+            ).click()
+        saved = self.window._replay_settings_store.load()
+        self.assertEqual(saved.microphone_device_id, "mix-id")
+        self.assertEqual(saved.microphone_device_name, "立体声混音")
+        self.assertEqual(
+            self.window.findChild(QLineEdit, "microphone_device_name").text(),
+            "立体声混音",
+        )
+
+    def test_qt_standard_dialog_buttons_are_localized_to_chinese(self):
+        self.assertTrue(install_chinese_qt_translator(self.app))
+        input_dialog = QInputDialog()
+        input_dialog.show()
+        self.app.processEvents()
+        button_box = input_dialog.findChild(QDialogButtonBox)
+        self.assertEqual(
+            button_box.button(QDialogButtonBox.StandardButton.Ok).text(), "确定"
+        )
+        self.assertEqual(
+            button_box.button(QDialogButtonBox.StandardButton.Cancel).text(), "取消"
+        )
+        input_dialog.close()
+        box = QMessageBox(
+            QMessageBox.Icon.Question,
+            "测试",
+            "测试",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        self.assertTrue(box.button(QMessageBox.StandardButton.Yes).text().startswith("是"))
+        self.assertTrue(box.button(QMessageBox.StandardButton.No).text().startswith("否"))
+
+    def test_manual_replay_core_selection_is_persisted_and_displayed(self):
+        core = Path(self.appearance_directory.name) / "myautoplayer-native-replay.exe"
+        core.touch()
+        with patch(
+            "main.QFileDialog.getOpenFileName",
+            return_value=(str(core), "Windows 程序 (*.exe)"),
+        ):
+            self.window.findChild(QPushButton, "choose_replay_core_button").click()
+
+        expected = core.resolve()
+        self.assertEqual(self.window._replay_settings.core_path, expected)
+        self.assertEqual(self.window._replay_settings_store.load().core_path, expected)
+        self.assertEqual(
+            self.window.findChild(QLineEdit, "replay_core_path").text(),
+            str(expected),
+        )
+        self.assertTrue(
+            self.window.findChild(QPushButton, "start_native_replay_button").isEnabled()
+        )
+
+    def test_key_monitor_settings_keep_checks_and_allow_default_uncheck(self):
+        settings_path = Path(self.appearance_directory.name) / "key_monitor.json"
+        monitor = KeyMonitorWindow(settings_path=settings_path)
+        monitor.set_extra_keys(["5"])
+        self.window._key_monitor_window = monitor
+
+        def accept_after_unchecking_side_key():
+            dialog = next(
+                widget
+                for widget in QApplication.topLevelWidgets()
+                if isinstance(widget, QDialog)
+                and widget.windowTitle() == "设置按键记录窗口"
+                and widget.parent() is self.window
+            )
+            key_list = dialog.findChild(QListWidget, "key_monitor_selected_keys")
+            states = {
+                key_list.item(index).data(Qt.ItemDataRole.UserRole): key_list.item(index)
+                for index in range(key_list.count())
+            }
+            self.assertEqual(states["mouse_back"].checkState(), Qt.CheckState.Checked)
+            self.assertEqual(states["5"].checkState(), Qt.CheckState.Checked)
+            states["mouse_back"].setCheckState(Qt.CheckState.Unchecked)
+            background = dialog.findChild(QComboBox, "key_monitor_detail_background")
+            button_box = dialog.findChild(QDialogButtonBox)
+            apply_button = dialog.findChild(QPushButton, "key_monitor_apply_button")
+            self.assertEqual(
+                button_box.button(QDialogButtonBox.StandardButton.Ok).text(), "确定"
+            )
+            self.assertEqual(
+                button_box.button(QDialogButtonBox.StandardButton.Cancel).text(), "取消"
+            )
+            self.assertEqual(apply_button.text(), "应用")
+            self.assertTrue(apply_button.isEnabled())
+            background.setCurrentIndex(background.findData("sky_blue"))
+            dialog.findChild(QSlider, "key_monitor_detail_opacity").setValue(44)
+            dialog.findChild(QSlider, "key_monitor_window_opacity").setValue(19)
+            self.assertEqual(monitor.detail_background, "sky_blue")
+            self.assertEqual(monitor.detail_opacity, 44)
+            self.assertEqual(monitor.window_opacity, 19)
+            return QDialog.DialogCode.Accepted
+
+        with patch(
+            "main.QDialog.exec",
+            side_effect=accept_after_unchecking_side_key,
+        ):
+            self.window._configure_key_monitor()
+        self.assertEqual(
+            monitor.keys,
+            (*[key for key in DEFAULT_MONITOR_KEYS if key != "mouse_back"], "5"),
+        )
+        self.assertEqual(monitor.extra_keys, ("5",))
+        self.assertEqual(monitor.detail_background, "sky_blue")
+        self.assertEqual(monitor.detail_opacity, 44)
+        self.assertEqual(monitor.window_opacity, 19)
+        monitor.close()
+        self.window._key_monitor_window = None
+
+    def test_key_monitor_live_preview_cancel_rolls_back_unapplied_changes(self):
+        settings_path = Path(self.appearance_directory.name) / "key_monitor.json"
+        monitor = KeyMonitorWindow(settings_path=settings_path)
+        self.window._key_monitor_window = monitor
+        original = (
+            monitor.keys,
+            monitor.recent_count,
+            monitor.detail_background,
+            monitor.detail_opacity,
+            monitor.window_opacity,
+        )
+
+        def preview_then_cancel():
+            dialog = next(
+                widget
+                for widget in QApplication.topLevelWidgets()
+                if isinstance(widget, QDialog)
+                and widget.windowTitle() == "设置按键记录窗口"
+                and widget.parent() is self.window
+            )
+            dialog.findChild(QComboBox, "key_monitor_recent_count").setCurrentIndex(2)
+            dialog.findChild(QSlider, "key_monitor_detail_opacity").setValue(18)
+            dialog.findChild(QSlider, "key_monitor_window_opacity").setValue(7)
+            self.assertEqual(monitor.recent_count, 10)
+            self.assertEqual(monitor.detail_opacity, 18)
+            self.assertEqual(monitor.window_opacity, 7)
+            self.assertTrue(
+                dialog.findChild(QPushButton, "key_monitor_apply_button").isEnabled()
+            )
+            return QDialog.DialogCode.Rejected
+
+        with patch("main.QDialog.exec", side_effect=preview_then_cancel):
+            self.window._configure_key_monitor()
+        self.assertEqual(
+            (
+                monitor.keys,
+                monitor.recent_count,
+                monitor.detail_background,
+                monitor.detail_opacity,
+                monitor.window_opacity,
+            ),
+            original,
+        )
+        monitor.close()
+        self.window._key_monitor_window = None
+
+    def test_microphone_recording_starts_and_live_status_uses_real_levels(self):
+        microphone = self.window.findChild(QCheckBox, "record_microphone_checkbox")
+        microphone.setChecked(True)
+        controller = Mock()
+        controller.running = False
+        controller.start.return_value = SimpleNamespace(directory=Path("C:/buffer"))
+        self.window._native_replay_controller = controller
+        preview = Mock()
+        self.window._audio_preview_controller = preview
+        self.window._toggle_native_replay()
+        preview.stop.assert_called_once_with()
+        controller.start.assert_called_once_with(self.window._replay_settings)
+        self.assertEqual(
+            self.window.findChild(QPushButton, "start_native_replay_button").text(),
+            "停止并清空",
+        )
+        controller.running = True
+        controller.audio_levels.return_value = (64, 31)
+        self.window._update_replay_live_status()
+        self.assertEqual(
+            self.window.findChild(QProgressBar, "desktop_audio_meter").value(), 64
+        )
+        self.assertEqual(
+            self.window.findChild(QProgressBar, "microphone_audio_meter").value(), 31
+        )
+        self.assertIn(
+            "正在录制",
+            self.window.findChild(QPushButton, "recording_indicator").text(),
+        )
+
+    def test_idle_audio_preview_updates_both_real_level_meters_without_saving(self):
+        replay = Mock()
+        replay.running = False
+        preview = Mock()
+        preview.running = True
+        preview.poll.return_value = None
+        preview.audio_levels.return_value = (37, 58)
+        self.window._native_replay_controller = replay
+        self.window._audio_preview_controller = preview
+        self.window._update_replay_live_status()
+        desktop = self.window.findChild(QProgressBar, "desktop_audio_meter")
+        microphone = self.window.findChild(QProgressBar, "microphone_audio_meter")
+        self.assertEqual(desktop.value(), 37)
+        self.assertEqual(microphone.value(), 58)
+        self.assertIn("设备预检", desktop.text())
+        self.assertIn("不保存", desktop.text())
+        self.assertIn("设备预检", microphone.text())
+        self.assertIn("当前不保存", microphone.text())
+
+    def test_stopping_replay_does_not_prompt_or_save(self):
+        controller = Mock()
+        controller.running = True
+        self.window._native_replay_controller = controller
+        with patch("main.QInputDialog.getText") as get_text, patch.object(
+            self.window, "_start_replay_export"
+        ) as start_export:
+            self.window._toggle_native_replay()
+        get_text.assert_not_called()
+        start_export.assert_not_called()
+        controller.request_stop.assert_called_once_with()
+        self.assertIn("不会生成正式录像", self.window._native_replay_status.text())
+
+    def test_save_recent_prompts_and_starts_export_without_stop(self):
+        controller = Mock()
+        controller.running = True
+        self.window._native_replay_controller = controller
+        with patch(
+            "main.QInputDialog.getText",
+            return_value=("第一次精彩操作", True),
+        ), patch.object(self.window, "_start_replay_export") as start_export:
+            self.window._save_native_replay()
+        start_export.assert_called_once_with("第一次精彩操作")
+        controller.request_stop.assert_not_called()
+
+    def test_stop_never_validates_a_replay_folder_name(self):
+        controller = Mock()
+        controller.running = True
+        self.window._native_replay_controller = controller
+        with patch("main.QInputDialog.getText") as get_text:
+            self.window._toggle_native_replay()
+        get_text.assert_not_called()
+        controller.request_stop.assert_called_once_with()
+
+    def test_stopped_replay_clears_temporary_buffer_without_export(self):
+        controller = Mock()
+        controller.running = False
+        controller.poll.return_value = 0
+        self.window._native_replay_controller = controller
+        self.window._native_replay_exit_handled = False
+        with patch.object(self.window, "_start_replay_export") as start_export:
+            self.window._poll_native_replay()
+        start_export.assert_not_called()
+        controller.cleanup_buffer.assert_called_once_with()
+        self.assertIn("临时回放缓冲已清空", self.window._native_replay_status.text())
 
     def test_selected_table_item_keeps_its_own_foreground_color(self):
         table = QTableWidget(1, 1)
@@ -754,9 +1220,28 @@ class UiShellTests(unittest.TestCase):
             current_path.write_text("外部修改后的提示词", encoding="utf-8")
             reopened = build_ai_prompt_content(config_dir=config_dir)
             self.assertIn("外部修改后的提示词", reopened.text)
-            dialog = AiPromptDialog(self.window, reopened.text, reopened.load)
+            dialog = AiPromptDialog(
+                self.window, reopened.text, reopened.load, reopened.complete_path
+            )
             self.assertIn(str(current_path.resolve()), dialog.path_info.text())
             self.assertIn(str(default_path.resolve()), dialog.path_info.text())
+            self.assertIn(str(reopened.complete_path), dialog.path_info.text())
+            self.assertIn("第1～11节", dialog.path_info.text())
+            self.assertIn("实时生成，只读", dialog.path_info.text())
+            self.assertIn("存储文件，可修改", dialog.path_info.text())
+            with patch(
+                "src.ui.ai_prompt_dialog.QDesktopServices.openUrl", return_value=True
+            ) as open_url:
+                dialog.open_editable_folder_button.click()
+                editable_url = open_url.call_args.args[0]
+                self.assertEqual(
+                    Path(editable_url.toLocalFile()).resolve(), config_dir.resolve()
+                )
+                dialog.open_backup_folder_button.click()
+                backup_url = open_url.call_args.args[0]
+                self.assertEqual(
+                    Path(backup_url.toLocalFile()).resolve(), config_dir.resolve()
+                )
             dialog.copy_button.click()
             self.assertEqual(QApplication.clipboard().text(), reopened.text)
             dialog.deleteLater()

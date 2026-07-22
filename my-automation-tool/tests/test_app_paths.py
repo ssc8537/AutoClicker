@@ -14,6 +14,7 @@ class AppPathsTests(unittest.TestCase):
         self.assertEqual(app_paths.macro_root(), root / "macros")
         self.assertEqual(app_paths.config_root(), root / "config")
         self.assertEqual(app_paths.log_root(), root / "logs")
+        self.assertEqual(app_paths.capture_root(), root / "captures")
 
     def test_frozen_paths_are_next_to_the_executable_not_meipass(self):
         executable = Path("C:/Portable/MyAutoPlayer/MyAutoPlayer.exe")

@@ -1,8 +1,8 @@
 """由“13EQFR左键.json”只读等价转换。"""
 
 NAME = "13EQFR左键"
-HOTKEY = "mouse_forward"
-MODE = "down"
+HOTKEY = 'mouse_forward'
+MODE = 'down'
 COUNT = 0
 SPEED = 1.0
 ENABLED = False

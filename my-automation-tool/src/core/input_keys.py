@@ -142,6 +142,31 @@ def display_input_key(value: str) -> str:
     return _DISPLAY_NAMES.get(key, key.upper())
 
 
+def physical_input_name(value: str) -> str:
+    """返回按键日志和实时窗口共用的小白物理键名称。"""
+    key = normalise_input_key(value)
+    mouse_names = {
+        "mouse_left": "鼠标左键",
+        "mouse_right": "鼠标右键",
+        "mouse_middle": "鼠标中键",
+        "mouse_back": "侧键 1",
+        "mouse_forward": "侧键 2",
+    }
+    if key in mouse_names:
+        return mouse_names[key]
+    return f"大写 {display_input_key(key)}"
+
+
+def physical_event_text(value: str, pressed: bool, labels=()) -> str:
+    """生成“按下了战技（物理键：大写 E）”一类完整事件文本。"""
+    action = "按下了" if pressed else "松开了"
+    physical_name = physical_input_name(value)
+    labels = tuple(str(label) for label in labels if str(label).strip())
+    if labels:
+        return f"{action}{' / '.join(labels)}（物理键：{physical_name}）"
+    return f"{action}{physical_name}"
+
+
 def keyboard_hook_name(key: str) -> str:
     """Translate persistent names to the spelling accepted by ``keyboard``."""
     canonical = normalise_input_key(key)

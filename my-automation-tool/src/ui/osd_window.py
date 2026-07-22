@@ -12,7 +12,9 @@ from src.utils.app_paths import config_root
 
 from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QRect
 from PySide6.QtGui import QFont, QColor, QFontMetrics
-from PySide6.QtWidgets import QWidget, QLabel, QHBoxLayout, QApplication, QGraphicsDropShadowEffect
+from PySide6.QtWidgets import (
+    QWidget, QLabel, QHBoxLayout, QApplication, QGraphicsDropShadowEffect, QSizePolicy,
+)
 
 
 class OsdPopup(QWidget):
@@ -56,6 +58,8 @@ class OsdPopup(QWidget):
         self.popup_duration_ms = 2000
         self.popup_success_color = "#00FF00"
         self.popup_end_color = "#FF0000"
+        self.popup_background_enabled = False
+        self._current_color = self.popup_success_color
         try:
             if self._settings_path.exists():
                 with open(self._settings_path, "r", encoding="utf-8") as f:
@@ -66,6 +70,10 @@ class OsdPopup(QWidget):
                 self.popup_duration_ms = cfg.get("popup_duration_ms", 2000)
                 self.popup_success_color = cfg.get("popup_success_color", "#00FF00")
                 self.popup_end_color = cfg.get("popup_end_color", "#FF0000")
+                self._current_color = self.popup_success_color
+                self.popup_background_enabled = bool(
+                    cfg.get("popup_background_enabled", False)
+                )
         except Exception:
             pass
 
@@ -76,6 +84,26 @@ class OsdPopup(QWidget):
             self._hide_timer.stop()
             self._fade_anim.stop()
             self.hide()
+        self._save_config_value("popup_enabled", self.popup_enabled)
+
+    def set_size(self, size: int) -> None:
+        """立即调整 OSD 字号并持久化。"""
+        self.popup_size = max(10, min(72, int(size)))
+        self._label.setFont(QFont("Microsoft YaHei", self.popup_size, QFont.Bold))
+        if self._label.text():
+            self._resize_for_text(self._label.text())
+            self.update_position()
+        self._save_config_value("popup_size", self.popup_size)
+
+    def set_background_enabled(self, enabled: bool) -> None:
+        """切换不遮挡游戏的半透明樱云背景。"""
+        self.popup_background_enabled = bool(enabled)
+        self._apply_label_style(self._current_color)
+        self._save_config_value(
+            "popup_background_enabled", self.popup_background_enabled
+        )
+
+    def _save_config_value(self, key: str, value) -> None:
         temporary_name = None
         try:
             data = {}
@@ -83,7 +111,7 @@ class OsdPopup(QWidget):
                 loaded = json.loads(self._settings_path.read_text(encoding="utf-8"))
                 if isinstance(loaded, dict):
                     data = loaded
-            data["popup_enabled"] = self.popup_enabled
+            data[key] = value
             self._settings_path.parent.mkdir(parents=True, exist_ok=True)
             descriptor, temporary_name = tempfile.mkstemp(
                 prefix=f".{self._settings_path.name}.",
@@ -110,11 +138,10 @@ class OsdPopup(QWidget):
 
         self._label = QLabel(self)
         self._label.setAlignment(Qt.AlignCenter)
+        self._label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self._label.setTextFormat(Qt.TextFormat.PlainText)
         self._label.setFont(QFont("Microsoft YaHei", self.popup_size, QFont.Bold))
-        self._label.setStyleSheet(
-            f"color: {self.popup_success_color}; background: transparent;"
-        )
+        self._apply_label_style(self._current_color)
         layout.addWidget(self._label)
 
         shadow = QGraphicsDropShadowEffect(self)
@@ -122,6 +149,17 @@ class OsdPopup(QWidget):
         shadow.setOffset(0, 2)
         shadow.setColor(QColor(0, 0, 0, 160))
         self._label.setGraphicsEffect(shadow)
+
+    def _apply_label_style(self, color: str) -> None:
+        background = (
+            "rgba(255, 244, 249, 72)" if self.popup_background_enabled else "transparent"
+        )
+        border = "1px solid rgba(255, 255, 255, 120)" if self.popup_background_enabled else "none"
+        radius = 12 if self.popup_background_enabled else 0
+        self._label.setStyleSheet(
+            f"color: {color}; background-color: {background}; "
+            f"border: {border}; border-radius: {radius}px; padding: 3px 10px;"
+        )
 
     def _setup_animation(self):
         """初始化淡出动画和自动隐藏定时器。"""
@@ -155,13 +193,16 @@ class OsdPopup(QWidget):
 
         should_wrap = single_line_width > max_width
         self._label.setWordWrap(should_wrap)
+        label_horizontal_padding = 22
+        label_vertical_padding = 8
         if should_wrap:
-            wrap_width = max(
+            label_width = max(
                 1,
                 target_width
                 - (self._HORIZONTAL_MARGIN * 2)
                 - self._SHADOW_GUARD,
             )
+            wrap_width = max(1, label_width - label_horizontal_padding)
             bounds = metrics.boundingRect(
                 QRect(0, 0, wrap_width, 10000),
                 int(Qt.TextFlag.TextWordWrap | Qt.AlignmentFlag.AlignHCenter),
@@ -169,11 +210,15 @@ class OsdPopup(QWidget):
             )
             content_height = bounds.height()
         else:
+            label_width = metrics.horizontalAdvance(text) + label_horizontal_padding
             content_height = metrics.height()
+
+        label_height = content_height + label_vertical_padding
+        self._label.setFixedSize(label_width, label_height)
 
         target_height = max(
             self._MIN_HEIGHT,
-            content_height + (self._VERTICAL_MARGIN * 2) + self._SHADOW_GUARD,
+            label_height + (self._VERTICAL_MARGIN * 2) + self._SHADOW_GUARD,
         )
         self.setFixedSize(target_width, target_height)
 
@@ -190,9 +235,8 @@ class OsdPopup(QWidget):
         # 更新文本和颜色
         self._label.setText(text)
         color = self.popup_success_color if success else self.popup_end_color
-        self._label.setStyleSheet(
-            f"color: {color}; background: transparent;"
-        )
+        self._current_color = color
+        self._apply_label_style(color)
 
         # 先按实际字体计算完整文本尺寸，再重新居中，避免长脚本名左右被裁掉。
         self._resize_for_text(text)

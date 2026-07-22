@@ -10,6 +10,10 @@
 
 保留的底线：Python `run(player)`、可自定义的单一全局启停键、停止释放、真实输入先自动测试后人工验收、案例只读、用户文件不动、默认不发布且禁止强推。F2 没有固定功能；默认全局键、支持范围及冲突规则以当前 Stage 规格为准。只有无法确认的案例/UI/安全事实才按需请一名专家。
 
+## 最高指令：原生录像工具位置
+
+Stage 19 的 Rust/MSVC 构建工具只允许位于以下已知位置：Rust/Cargo 为 `C:\MAPL-Native-Replay\rustup\` 与 `C:\MAPL-Native-Replay\cargo\`，MSVC/Windows SDK 为 `C:\MAPL-Native-Replay\vs-buildtools\`，安装器下载缓存为 `my-automation-tool/.tooling/native-replay/downloads/`。构建脚本是 `my-automation-tool/scripts/build_native_replay.ps1`，它只负责把源码编译成原生 EXE，不是用户启动录像的入口，也不应留下常驻进程。未来 AI 清理工具前必须先提醒用户：卸载/删除这些路径不会删除源码、宏、配置、日志或视频，但会失去重新编译原生录像组件的能力；完整卸载命令见 `my-automation-tool/native-replay/BUILDING.md`。禁止把工具散装到其它未知目录或修改永久系统 PATH。
+
 这比上一版默认四份文档加多员工流程减少超过 50% 的阅读和等待；平台实际模型以运行环境为准。
 
 ## 最高指令：优秀案例 1 源码先行与零偏移

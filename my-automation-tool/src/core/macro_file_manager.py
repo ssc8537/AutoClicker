@@ -268,3 +268,8 @@ def _move_to_windows_recycle_bin(path: Path) -> None:
     result = ctypes.windll.shell32.SHFileOperationW(ctypes.byref(operation))
     if result != 0 or operation.fAnyOperationsAborted:
         raise OSError(f"Windows 回收站操作失败：{result}")
+
+
+def move_path_to_windows_recycle_bin(path: str | Path) -> None:
+    """Public shared entry point for guarded services that recycle owned paths."""
+    _move_to_windows_recycle_bin(Path(path))

@@ -23,26 +23,26 @@
 
 ## 2. 你的最终输出
 
-资料足够时，直接返回一份完整、可保存的 Python 文件，不要只返回片段、伪代码、差异说明或案例格式。文件必须包含 NAME、HOTKEY、MODE、COUNT、SPEED、ENABLED 和精确的 def run(player)。
+资料足够时，直接返回一份完整、可保存的 Python 文件，不要只返回片段、伪代码、差异说明或案例格式。文件必须包含 NAME、HOTKEY、MODE、COUNT、SPEED、ENABLED 和精确的 def run(player)。六个元数据都要有简短行尾注释；run 内按连招阶段添加适度注释，让具备一定 Python 基础的用户能快速找到需要修改的动作和等待，不要逐行重复代码本身。
 
 若用户附带现有宏源码，保留用户没有要求修改的元数据、角色编号注释和其他注释。只改变用户明确要求的连招。输出前逐项核对第八节。
 
 ## 3. 唯一允许使用的 `player` API
 
 ### `player.tap(key, hold_ms=20)`
-点击一个键盘键或鼠标键。key 使用第十节内部值。hold_ms 必须是大于 0 的整数。鼠标也可传 mouse_left、mouse_right、mouse_middle、mouse_back、mouse_forward。中断或异常时保证释放。
+点击一个键盘键或鼠标键。key 使用第九节内部值。hold_ms 必须是大于 0 的整数。鼠标也可传 mouse_left、mouse_right、mouse_middle、mouse_back、mouse_forward。中断或异常时保证释放。
 
 ### `player.sleep(ms)`
 可中断等待，单位毫秒。ms 必须是非负数字。只有这个等待会除以 SPEED；例如 SPEED 为 2.0 时，player.sleep(1000) 实际约等待 500ms。禁止使用 time.sleep。
 
 ### `player.切换(1)`、`player.切换(2)`、`player.切换(3)`
-发送第九节角色 1、2、3 槽位当前保存的物理键。它只发键，不识别当前角色。
+发送第十节角色 1、2、3 槽位当前保存的物理键。它只发键，不识别当前角色。
 
 ### `player.战技()`、`player.声骸()`、`player.大招()`、`player.跳跃()`、`player.处决()`
 发送对应固定槽位当前保存的物理键。即使用户改了动作显示名称，这些稳定函数名仍然可用。
 
 ### `player.按键("当前动作名称", hold_ms=20)`
-按第九节的当前显示名称查找并发送物理键。扩展键或改名动作使用这个函数。名称必须与第九节完全一致；不同名称允许绑定同一物理键。
+按第十节的当前显示名称查找并发送物理键。扩展键或改名动作使用这个函数。名称必须与第十节完全一致；不同名称允许绑定同一物理键。
 
 ### `player.mouse_click(button="left", hold_ms=10)`
 点击鼠标键。button 只允许 left、right、middle、x1、x2。
@@ -60,12 +60,12 @@
 
 | 字段 | 规则 |
 |---|---|
-| `NAME` | 非空字符串，显示在宏库。 |
-| `HOTKEY` | 第十节中的键盘或鼠标内部值；不得与第九节当前全局键冲突；允许同键多宏。 |
-| `MODE` | `down` 为按下启动、松开停止；`switch` 为第一次按下启动、第二次按下停止。 |
-| `COUNT` | 0–99；0 表示重复 `run(player)` 到收到停止请求。 |
-| `SPEED` | 0.01–8.0，只缩放 `player.sleep()`。 |
-| `ENABLED` | `True` 或 `False`。 |
+| `NAME` | 非空字符串，显示在宏库；注释说明这是宏库名称。 |
+| `HOTKEY` | 第九节中的键盘或鼠标内部值；不得与第十节当前全局键冲突；允许同键多宏；注释写清物理触发键。 |
+| `MODE` | `down` 为按下启动、松开停止；`switch` 为第一次按下启动、第二次按下停止；注释解释本文件采用哪一种。 |
+| `COUNT` | 0–99；0 表示重复 `run(player)` 到收到停止请求；注释写明运行轮数。 |
+| `SPEED` | 0.01–8.0，只缩放 `player.sleep()`；注释写明这是等待速度倍率。 |
+| `ENABLED` | `True` 或 `False`；注释写明是否在宏库中启用。 |
 | `def run(player)` | 唯一入口，必须恰好只有 `player` 一个必填位置参数。 |
 
 不要在 run 外执行输入。不要依赖全局变量保存游戏状态。每一轮 run 返回后，COUNT 决定是否开始下一轮。
@@ -82,20 +82,61 @@
 8. MODE 为 down 时要让松开随时可中断；MODE 为 switch 时第二次按下可中断。不要写不可中断的 while True。
 9. 需要持续循环时使用 COUNT = 0，让程序重复 run；不要自己创建永久循环。
 10. 需要长按鼠标时使用 try/finally 配对 mouse_down 和 mouse_up。键盘长按 API 当前不存在，不得伪造。
+11. 若一小段完全相同的动作和等待连续出现多次，可使用有限的 `for _ in range(次数)` 压缩；次数必须是明确整数，循环体仍只调用本提示词允许的 API。动作、按住时长或间隔不相同时应逐项写出，禁止为了缩短代码而丢失真实毫秒差异。
+
+### 5.1 使用按键记录文件复刻连招
+
+开发连招页会把一次会话保存到用户界面显示的“视频保存地址”。默认结构是：
+
+```text
+captures\YYYY-MM-DD\用户名称-YYYYMMDD-HHMMSS-recording\
+```
+
+| 文件 | 作用 | AI应如何使用 |
+|---|---|---|
+| `events.jsonl` | 一行一个原始按键边沿，字段最完整、毫秒精度最高。 | **优先读取**，按 `sequence` 排序后分析。 |
+| `events.csv` | 与JSONL对应的小白易读表格，可直接查看和筛选。 | 用于人工核对；与JSONL冲突时以JSONL为准。 |
+| `raw.mp4` | 纯净桌面/游戏录像；桌面声音为独立音轨1，启用麦克风时人声为独立音轨2。 | 对照画面判断物理输入是否真的转化成技能；剪辑时可单独静音人声。 |
+| `raw.ass` | 与原始视频同名的最终外挂字幕：按键名、按下/分开毫秒、淡色背景和描边。 | **优先用于观看复盘**；项目不再生成烧录字幕的第二份视频。 |
+| `input_subtitles.srt` | 不带固定视觉样式的兼容字幕。 | 只在播放器不支持ASS时手动加载，避免播放器优先选择无样式SRT。 |
+| `metadata.json` | 分辨率、帧率、编码器、源尺寸、耗时和丢帧等会话信息。 | 检查录像时间基准和性能证据。 |
+| `native.log` | 原生录像核心的启动、结束和错误记录。 | 只用于诊断录像失败，不用于生成连招。 |
+
+按键窗口中的“最近事件”只保存在内存中，最多显示用户选择的3/5/10条，关闭窗口后不会单独留下文件。只有用户在开发连招页点击“开始”并实际运行录像会话时，才会在该会话目录持续写入 `events.jsonl` 和 `events.csv`；这两份才是真正保存给AI的按键记录。必须理解以下字段：
+
+| 概念/字段 | 含义 |
+|---|---|
+| 按下 / `state=down` | 物理键从松开变为按下的边沿。 |
+| 松开 / `state=up` | 物理键从按下变为松开的边沿。 |
+| 按下时长 / `held_ms` | 只在对应松开事件上有值；等于同一物理键本次down到up的持续时间。 |
+| 松开间隔 / `release_gap_ms` | 只在下一次按下同一键时有值；等于上一次up到本次down之间的时间。 |
+| 距上一事件 / `delta_from_previous_event_ms` | 当前边沿与整个序列上一条边沿之间的差值，不限于同一个键。 |
+| 同时按住 / `overlap_keys` | 当前事件发生后，除当前键外仍处于down状态的键。 |
+| 仍在按住 / `active_keys_after_event` | 当前事件处理完成后全部仍处于down状态的物理键。 |
+
+分析规则：
+
+1. 始终按 `sequence` 还原真实边沿顺序，不要按显示文字重新排序。
+2. 普通单击可由同键down/up配对得到 `player.tap(key, hold_ms=held_ms)`；从本次up到下一动作down的空档才转换为后续 `player.sleep()`，不得把按下时长重复计算两次。
+3. `delta_from_previous_event_ms` 用于核对全局先后；`release_gap_ms` 用于判断同一个键连点频率，两者不能混用。
+4. 若 `active_keys_after_event` 同时包含多个键，说明存在真实重叠。鼠标长按可用 `mouse_down/mouse_up`；当前没有键盘down/up API，不能伪造精确键盘重叠。先结合录像判断它是有效连招还是紧张时的无效误按，再向用户说明可实现范围。
+5. 输入日志证明“用户按了什么”，不证明技能成功、冷却完成或游戏接收。必须结合 `raw.mp4` 和用户确认，不得把每次物理输入都自动视为有效技能。
+6. 生成脚本时，在元数据后添加简短注释，在run内按“起手、切人、爆发、收尾”等逻辑块注释；只解释动作目的和关键时间，保持中等详细度。
 
 ## 6. 可直接参考的完整示例
 
 ### 示例 A：按下模式与鼠标动作
 
 ```python
-NAME = "按下连招示例"
-HOTKEY = "mouse_back"
-MODE = "down"
-COUNT = 0
-SPEED = 1.0
-ENABLED = True
+NAME = "按下连招示例"       # 宏库显示名称
+HOTKEY = "mouse_back"       # 物理触发键：侧键1
+MODE = "down"               # 按住触发键运行，松开立即停止
+COUNT = 0                    # 持续重复，直到收到停止请求
+SPEED = 1.0                  # player.sleep 等待速度倍率
+ENABLED = True               # 在宏库中启用
 
 def run(player):
+    # 起手：左键后接战技
     player.mouse_click("left", 20)
     player.sleep(120)
     player.战技()
@@ -105,14 +146,15 @@ def run(player):
 ### 示例 B：切换模式
 
 ```python
-NAME = "切换连招示例"
-HOTKEY = "f8"
-MODE = "switch"
-COUNT = 0
-SPEED = 1.0
-ENABLED = True
+NAME = "切换连招示例"       # 宏库显示名称
+HOTKEY = "f8"               # 物理触发键：F8
+MODE = "switch"             # 第一次按下启动，第二次按下停止
+COUNT = 0                    # 持续重复，直到收到停止请求
+SPEED = 1.0                  # player.sleep 等待速度倍率
+ENABLED = True               # 在宏库中启用
 
 def run(player):
+    # 爆发：声骸后释放大招
     player.声骸()
     player.sleep(300)
     player.大招()
@@ -122,47 +164,179 @@ def run(player):
 ### 示例 C：三角色确定性轮转
 
 ```python
-NAME = "三角色轮转示例"
-HOTKEY = "mouse_forward"
-MODE = "switch"
-COUNT = 1
-SPEED = 1.0
-ENABLED = True
+NAME = "三角色轮转示例"     # 宏库显示名称
+HOTKEY = "mouse_forward"    # 物理触发键：侧键2
+MODE = "switch"             # 第一次按下启动，第二次按下停止
+COUNT = 1                    # 只运行一轮
+SPEED = 1.0                  # player.sleep 等待速度倍率
+ENABLED = True               # 在宏库中启用
 
 def run(player):
+    # 第一段：角色1释放战技
     player.切换(1)
     player.sleep(80)
     player.战技()
     player.sleep(600)
+
+    # 第二段：角色2声骸接大招
     player.切换(2)
     player.sleep(1080)
     player.声骸()
     player.sleep(400)
     player.大招()
     player.sleep(1500)
+
+    # 收尾：切到角色3释放战技
     player.切换(3)
     player.sleep(80)
     player.战技()
 ```
 
-共享动作改名或扩展键不要照抄假名称。第九节会动态列出当前真实调用，例如 player.按键("用户保存的名称")，从那里逐字使用。
+### 示例 D：重复片段使用有限循环
+
+```python
+NAME = "有限重复示例"       # 宏库显示名称
+HOTKEY = "f7"               # 物理触发键：F7
+MODE = "switch"             # 第一次按下启动，第二次按下停止
+COUNT = 1                    # 整份连招只运行一轮
+SPEED = 1.0                  # player.sleep 等待速度倍率
+ENABLED = True               # 在宏库中启用
+
+def run(player):
+    # 连点段：相同的左键节奏连续执行6次
+    for _ in range(6):
+        player.mouse_click("left", 20)
+        player.sleep(80)
+
+    # 收尾：重复段结束后释放战技
+    player.战技()
+```
+
+共享动作改名或扩展键不要照抄假名称。第十节会动态列出当前真实调用，例如 player.按键("用户保存的名称")，从那里逐字使用。
 
 ## 7. 程序控制与能力边界
 
 快捷连点是功能页里的独立功能，不写进 Python 宏。它有启用、一个触发键、down 或 switch 模式、1 到 10000ms 间隔。
-全局启停键在设置页自定义，第九节会显示当前值。F2 和 F12 没有固定功能。
+全局启停键在设置页自定义，第十节会显示当前值。F2 和 F12 没有固定功能。
 OSD 和提示音可由设置页控制。程序自己发送且带本项目标记的键鼠事件会被 hook 过滤，不应再次触发宏、快捷连点或全局开关。
 中文输入法会影响目标窗口收到字母后的文字组合和候选框，不改变宏应使用的物理键内部值。文字显示不能作为触发正确性的唯一证据。
 
-本程序不支持：键盘长按 API、两个键组合触发一个宏、滚轮自动化、鼠标坐标或轨迹、录制、图像识别、OCR、角色或冷却自动检测、窗口绑定、手柄、案例 JSON/QIM、网络请求、子进程或外部输入库。不要输出这些能力的伪代码。
+Python宏不允许控制录像或直接读取事件文件；录像和日志由“开发连招”页面独立生成。本程序的Python宏不支持：键盘长按 API、两个键组合触发一个宏、滚轮自动化、鼠标坐标或轨迹、图像识别、OCR、角色或冷却自动检测、窗口绑定、手柄、案例 JSON/QIM、网络请求、子进程或外部输入库。不要输出这些能力的伪代码。
 
 ## 8. 输出前强制检查
 
 1. 返回的是一份完整 Python 文件，并包含六个元数据和 def run(player)。
-2. HOTKEY 使用第十节内部值，且不等于第九节当前全局启停键。
-3. 所有共享动作名称与第九节完全一致；能用稳定函数时优先使用稳定函数。
+2. HOTKEY 使用第九节内部值，且不等于第十节当前全局启停键。
+3. 所有共享动作名称与第十节完全一致；能用稳定函数时优先使用稳定函数。
 4. 只调用第三节列出的真实 API；所有等待都使用 player.sleep。
 5. 没有 time.sleep、while True、线程、子进程、网络、第三方输入、坐标或识别。
 6. 每个角色切换和技能动作后都有用户认可的确定等待时间。
 7. 没有编造角色技能、资源、冷却或动画事实；资料不足时只问最少必要问题。
 8. down、switch、COUNT 和 SPEED 与用户意图一致，停止可以及时生效。
+9. 六个元数据都有简短注释，run内按逻辑阶段提供中等详细度注释。
+10. 若使用事件文件，已区分按下时长、松开间隔、距上一事件和重叠键，没有把物理输入误判为技能成功。
+11. 连续相同片段可以使用有限 `for ... range(...)`，但没有使用 `while True`，也没有把不同的毫秒节奏错误合并。
+
+## 9. 完整按键字典（键盘与鼠标）
+
+本节直接保存在提示词文件中，不依赖程序运行时拼接。`内部值`可以写入 `HOTKEY`，也可以作为 `player.tap("内部值")` 的 `key`。表中的物理名称与按键日志命名规则对应；字母键不区分输入法产生的文字，始终代表物理键。
+
+### 9.1 主键盘数字与字母
+
+| 内部值 | 物理名称 | 内部值 | 物理名称 |
+|---|---|---|---|
+| `0` | 大写 0 | `1` | 大写 1 |
+| `2` | 大写 2 | `3` | 大写 3 |
+| `4` | 大写 4 | `5` | 大写 5 |
+| `6` | 大写 6 | `7` | 大写 7 |
+| `8` | 大写 8 | `9` | 大写 9 |
+| `a` | 大写 A | `b` | 大写 B |
+| `c` | 大写 C | `d` | 大写 D |
+| `e` | 大写 E | `f` | 大写 F |
+| `g` | 大写 G | `h` | 大写 H |
+| `i` | 大写 I | `j` | 大写 J |
+| `k` | 大写 K | `l` | 大写 L |
+| `m` | 大写 M | `n` | 大写 N |
+| `o` | 大写 O | `p` | 大写 P |
+| `q` | 大写 Q | `r` | 大写 R |
+| `s` | 大写 S | `t` | 大写 T |
+| `u` | 大写 U | `v` | 大写 V |
+| `w` | 大写 W | `x` | 大写 X |
+| `y` | 大写 Y | `z` | 大写 Z |
+
+### 9.2 功能键
+
+| 内部值 | 物理名称 | 内部值 | 物理名称 |
+|---|---|---|---|
+| `f1` | F1 | `f2` | F2 |
+| `f3` | F3 | `f4` | F4 |
+| `f5` | F5 | `f6` | F6 |
+| `f7` | F7 | `f8` | F8 |
+| `f9` | F9 | `f10` | F10 |
+| `f11` | F11 | `f12` | F12 |
+| `f13` | F13 | `f14` | F14 |
+| `f15` | F15 | `f16` | F16 |
+| `f17` | F17 | `f18` | F18 |
+| `f19` | F19 | `f20` | F20 |
+| `f21` | F21 | `f22` | F22 |
+| `f23` | F23 | `f24` | F24 |
+
+### 9.3 小键盘
+
+| 内部值 | 物理名称 | 内部值 | 物理名称 |
+|---|---|---|---|
+| `numpad0` | 小键盘 0 | `numpad1` | 小键盘 1 |
+| `numpad2` | 小键盘 2 | `numpad3` | 小键盘 3 |
+| `numpad4` | 小键盘 4 | `numpad5` | 小键盘 5 |
+| `numpad6` | 小键盘 6 | `numpad7` | 小键盘 7 |
+| `numpad8` | 小键盘 8 | `numpad9` | 小键盘 9 |
+| `numpad multiply` | 小键盘乘号 | `numpad add` | 小键盘加号 |
+| `numpad subtract` | 小键盘减号 | `numpad decimal` | 小键盘小数点 |
+| `numpad divide` | 小键盘除号 | － | － |
+
+### 9.4 控制键、导航键与修饰键
+
+| 内部值 | 物理名称 | 内部值 | 物理名称 |
+|---|---|---|---|
+| `space` | 空格 | `enter` | Enter |
+| `esc` | Esc | `tab` | Tab |
+| `backspace` | Backspace | `delete` | Delete |
+| `insert` | Insert | `home` | Home |
+| `end` | End | `page up` | PageUp |
+| `page down` | PageDown | `caps lock` | CapsLock |
+| `num lock` | NumLock | `scroll lock` | ScrollLock |
+| `pause` | Pause | `print screen` | PrintScreen |
+| `menu` | 菜单键 | `up` | 方向键上 |
+| `down` | 方向键下 | `left` | 方向键左 |
+| `right` | 方向键右 | `ctrl` | Ctrl |
+| `shift` | Shift | `alt` | Alt |
+| `win` | Win | `left ctrl` | 左 Ctrl |
+| `right ctrl` | 右 Ctrl | `left shift` | 左 Shift |
+| `right shift` | 右 Shift | `left alt` | 左 Alt |
+| `right alt` | 右 Alt | `left win` | 左 Win |
+| `right win` | 右 Win | － | － |
+
+### 9.5 标点与符号键
+
+| 内部值 | 物理名称 | 内部值 | 物理名称 |
+|---|---|---|---|
+| `backquote` | 反引号键 | `minus` | 减号 - 键 |
+| `equals` | 等号 = 键 | `left bracket` | 左方括号 [ 键 |
+| `right bracket` | 右方括号 ] 键 | `backslash` | 反斜杠键 |
+| `semicolon` | 分号 ; 键 | `quote` | 单引号 ' 键 |
+| `comma` | 逗号 , 键 | `period` | 句点 . 键 |
+| `slash` | 斜杠 / 键 | － | － |
+
+### 9.6 鼠标按键
+
+鼠标键既可作为 `HOTKEY`，也可传给 `player.tap()`。需要鼠标专用 API 时，使用最后一列的 `button` 值。
+
+| HOTKEY / tap 内部值 | 物理名称 | `player.mouse_*` button |
+|---|---|---|
+| `mouse_left` | 鼠标左键 | `left` |
+| `mouse_right` | 鼠标右键 | `right` |
+| `mouse_middle` | 鼠标中键 | `middle` |
+| `mouse_back` | 侧键 1 | `x1` |
+| `mouse_forward` | 侧键 2 | `x2` |
+
+> 第十节由程序每次打开提示词时动态生成，包含当前全局启停键、共享动作名称、对应物理键和正确调用。静态第九节回答“代码里可以写哪些键”，动态第十节回答“用户现在把每个游戏动作绑定到了哪个键”。

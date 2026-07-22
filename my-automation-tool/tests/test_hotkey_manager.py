@@ -1,7 +1,8 @@
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
-from src.core.hotkey_manager import HotkeyManager, TriggerMode
+from src.core.hotkey_manager import HotkeyManager, PhysicalInputEvent, TriggerMode
 from src.core.input_simulator import INPUT_EVENT_MARKER
 
 
@@ -26,6 +27,54 @@ class HotkeyManagerTests(unittest.TestCase):
 
     def event(self, event_type):
         return SimpleNamespace(event_type=event_type)
+
+    def test_background_window_rectangle_never_suppresses_game_mouse_input(self):
+        manager = HotkeyManager(main_window_hwnd=123)
+        with patch.object(
+            manager, "_main_hwnd", 123
+        ), patch("src.core.hotkey_manager.ctypes.windll.user32.GetForegroundWindow", return_value=456), patch(
+            "src.core.hotkey_manager.ctypes.windll.user32.GetWindowThreadProcessId"
+        ) as process_id:
+            def report_other_process(_hwnd, pointer):
+                pointer._obj.value = 999999
+                return 1
+
+            process_id.side_effect = report_other_process
+            self.assertFalse(manager.is_mouse_over_window())
+
+    def test_foreground_own_window_still_suppresses_clicks_inside_its_rectangle(self):
+        manager = HotkeyManager(main_window_hwnd=123)
+
+        def report_current_process(_hwnd, pointer):
+            import os
+            pointer._obj.value = os.getpid()
+            return 1
+
+        def report_cursor(pointer):
+            pointer._obj.x = 50
+            pointer._obj.y = 50
+            return 1
+
+        def report_rect(_hwnd, pointer):
+            pointer._obj.left = 0
+            pointer._obj.top = 0
+            pointer._obj.right = 100
+            pointer._obj.bottom = 100
+            return 1
+
+        with patch(
+            "src.core.hotkey_manager.ctypes.windll.user32.GetForegroundWindow", return_value=123
+        ), patch(
+            "src.core.hotkey_manager.ctypes.windll.user32.GetWindowThreadProcessId",
+            side_effect=report_current_process,
+        ), patch(
+            "src.core.hotkey_manager.ctypes.windll.user32.GetCursorPos",
+            side_effect=report_cursor,
+        ), patch(
+            "src.core.hotkey_manager.ctypes.windll.user32.GetWindowRect",
+            side_effect=report_rect,
+        ):
+            self.assertTrue(manager.is_mouse_over_window())
 
     def test_down_starts_on_press_and_stops_on_release(self):
         _, handler, started, stopped = self.make_handler(TriggerMode.DOWN)
@@ -229,6 +278,26 @@ class HotkeyManagerTests(unittest.TestCase):
         manager._queue_physical_event("a", False)
         self.assertEqual(manager._event_queue.qsize(), 2)
         manager.clear_pending_events()
+
+    def test_physical_observer_receives_edge_before_macro_queue(self):
+        manager = HotkeyManager()
+        observed = []
+        manager.add_physical_observer(observed.append)
+        manager._on_windows_keyboard_event(
+            0x0100, SimpleNamespace(vkCode=69, dwExtraInfo=0)
+        )
+        self.assertEqual(len(observed), 1)
+        self.assertIsInstance(observed[0], PhysicalInputEvent)
+        self.assertEqual((observed[0].hotkey, observed[0].pressed, observed[0].vk), ("e", True, 69))
+
+    def test_physical_observer_never_receives_mapl_input(self):
+        manager = HotkeyManager()
+        observed = []
+        manager.add_physical_observer(observed.append)
+        manager._on_windows_keyboard_event(
+            0x0100, SimpleNamespace(vkCode=69, dwExtraInfo=INPUT_EVENT_MARKER)
+        )
+        self.assertEqual(observed, [])
 
 if __name__ == "__main__":
     unittest.main()

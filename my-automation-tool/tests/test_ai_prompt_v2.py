@@ -13,7 +13,6 @@ from src.core.global_hotkey import save_global_hotkey
 from src.core.input_keys import (
     MOUSE_BUTTON_FOR_HOTKEY,
     WINDOWS_VK_BY_KEY,
-    display_input_key,
 )
 from src.core.macro_library import validate_macro_source
 from src.ui.ai_prompt_dialog import build_ai_prompt_content, load_prompt_template
@@ -48,15 +47,24 @@ class AiPromptV2Tests(unittest.TestCase):
             self.assertIn('`player.按键("闪避反击")`', prompt)
 
     def test_prompt_dictionary_tracks_every_supported_key(self):
-        with tempfile.TemporaryDirectory() as directory:
-            prompt = build_ai_prompt_content(config_dir=self._prompt_root(directory)).text
+        template = self.default_prompt.read_text(encoding="utf-8")
+        self.assertIn("## 9. 完整按键字典（键盘与鼠标）", template)
+        for key in WINDOWS_VK_BY_KEY:
+            self.assertRegex(template, rf"\| `{re.escape(key)}` \|")
+        for hotkey, button in MOUSE_BUTTON_FOR_HOTKEY.items():
+            self.assertRegex(template, rf"\| `{re.escape(hotkey)}` \|")
+            self.assertIn(f"| `{button}` |", template)
 
-            for key, vk in WINDOWS_VK_BY_KEY.items():
-                expected = f"| `{key}` | {display_input_key(key)} | `0x{vk:02X}` |"
-                self.assertIn(expected, prompt)
-            for hotkey, button in MOUSE_BUTTON_FOR_HOTKEY.items():
-                expected = f"| `{hotkey}` | {display_input_key(hotkey)} | `{button}` |"
-                self.assertIn(expected, prompt)
+        with tempfile.TemporaryDirectory() as directory:
+            content = build_ai_prompt_content(config_dir=self._prompt_root(directory))
+            prompt = content.text
+            self.assertEqual(prompt.count("## 9. 完整按键字典（键盘与鼠标）"), 1)
+            self.assertEqual(prompt.count("## 10. 当前程序设置"), 1)
+            self.assertEqual(prompt.count("## 11. 已保存的宏源码"), 1)
+            self.assertIsNotNone(content.complete_path)
+            self.assertEqual(
+                content.complete_path.read_text(encoding="utf-8"), prompt
+            )
 
     def test_prompt_documents_complete_real_api_and_boundaries(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -79,17 +87,43 @@ class AiPromptV2Tests(unittest.TestCase):
             self.assertIn("不得编造具体角色技能", prompt)
             self.assertIn("不支持：键盘长按 API", prompt)
             self.assertIn("不写进 Python 宏", prompt)
+            for artifact in (
+                "events.jsonl",
+                "events.csv",
+                "raw.mp4",
+                "raw.ass",
+                "input_subtitles.srt",
+                "metadata.json",
+                "native.log",
+            ):
+                self.assertIn(f"`{artifact}`", prompt)
+            for field in (
+                "held_ms",
+                "release_gap_ms",
+                "delta_from_previous_event_ms",
+                "overlap_keys",
+                "active_keys_after_event",
+            ):
+                self.assertIn(f"`{field}`", prompt)
+            self.assertIn("Python宏不允许控制录像", prompt)
+            self.assertIn("不证明技能成功", prompt)
+            self.assertIn("for _ in range(次数)", prompt)
+            self.assertIn("不同的毫秒节奏", prompt)
 
     def test_all_complete_examples_pass_current_static_validator(self):
         template = self.default_prompt.read_text(encoding="utf-8")
-        for label in ("A", "B", "C"):
+        for label in ("A", "B", "C", "D"):
             match = re.search(
                 rf"### 示例 {label}：[^\n]+\n\n```python\n(?P<source>.*?)\n```",
                 template,
                 flags=re.DOTALL,
             )
             self.assertIsNotNone(match, f"找不到示例 {label}")
-            validate_macro_source(match.group("source"), filename=f"示例 {label}")
+            source = match.group("source")
+            validate_macro_source(source, filename=f"示例 {label}")
+            for metadata in ("NAME", "HOTKEY", "MODE", "COUNT", "SPEED", "ENABLED"):
+                self.assertRegex(source, rf"(?m)^{metadata}\s*=.*#.+$")
+            self.assertRegex(source, r"(?m)^\s+#.+$")
 
     def test_shipped_current_and_default_templates_match(self):
         current = self.project_root / "config" / "ai_prompt.md"
