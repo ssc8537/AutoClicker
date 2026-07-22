@@ -31,8 +31,8 @@ def run(player):
     # 角色映射：1=卡提、2=夏空、3=千咲；以下全部是已清洗的正常速度毫秒。
 
     # 启动：千咲 E + A3。
-    
     _动作(player, "战技", 26, 30)
+    player.sleep(20)
     _平A(player, 31, 50)
     _平A(player, 31, 50)
     _平A(player, 31, 50)
