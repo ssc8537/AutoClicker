@@ -9,9 +9,9 @@ class ConvertedMacroBatchTests(unittest.TestCase):
     ROOT = Path(__file__).resolve().parents[1] / "macros"
 
     EXPECTED = {
-        "一_剑切轴.py": ("numpad0", "down", [3, 5, 7, 8, 1000]),
-        "一_千咲合轴卡提.py": ("mouse_back", "down", [5, 5, 8, 8, 100]),
-        "一_夏空合轴千咲.py": ("mouse_forward", "down", [1, 1, 2, 2, 2, 4, 6, 100]),
+        "(一)剑切轴.py": ("numpad0", "down", [3, 5, 7, 8, 1000]),
+        "(一)千咲合轴卡提.py": ("mouse_back", "down", [5, 5, 8, 8, 100]),
+        "(一)夏空合轴千咲.py": ("mouse_forward", "down", [1, 1, 2, 2, 2, 4, 6, 100]),
         "12eqr左键-今汐.py": ("mouse_back", "down", []),
         "13EQFR左键.py": ("mouse_forward", "down", []),
         "123全切加大招_今汐.py": ("mouse_back", "down", []),

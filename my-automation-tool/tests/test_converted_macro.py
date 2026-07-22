@@ -7,7 +7,7 @@ from src.core.macro_library import validate_macro_source
 
 class ConvertedMacroTests(unittest.TestCase):
     def test_yangyang_linna_qianxiao_macro_preserves_json_contract(self):
-        path = Path(__file__).resolve().parents[1] / "macros" / "秧秧琳奈千咲.py"
+        path = Path(__file__).resolve().parents[1] / "macros" / "(二)秧秧琳奈千咲.py"
         source = path.read_text(encoding="utf-8")
         metadata = validate_macro_source(source, filename=str(path))
 

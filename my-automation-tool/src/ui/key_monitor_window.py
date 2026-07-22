@@ -12,12 +12,14 @@ import tempfile
 import time
 
 from PySide6.QtCore import QPoint, QRect, QSize, Qt, QTimer, Signal, Slot
+from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import (
     QApplication,
     QGridLayout,
     QHBoxLayout,
     QLabel,
     QLayout,
+    QLineEdit,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -330,13 +332,30 @@ class KeyMonitorWindow(QWidget):
         details_layout.addWidget(self._history_scroll, 1)
 
         footer = QHBoxLayout()
+        footer.setContentsMargins(0, 0, 0, 0)
+        footer.setSpacing(6)
         self._hold_detail = QLabel("按住：—")
         self._release_detail = QLabel("松开：—")
         self._hold_detail.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self._release_detail.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         footer.addWidget(self._hold_detail)
         footer.addWidget(self._release_detail)
-        footer.addStretch(1)
+        self._scratch_input = QLineEdit()
+        self._scratch_input.setObjectName("key_monitor_scratch_input")
+        self._scratch_input.setPlaceholderText("可以在此输入按键")
+        self._scratch_input.setMaxLength(1_000_000)
+        self._scratch_input.setClearButtonEnabled(False)
+        self._scratch_input.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        self._scratch_input.setAccessibleName("临时按键输入框")
+        self._scratch_input.setToolTip("仅临时保留；关闭按键记录窗口后自动清空")
+        placeholder_palette = self._scratch_input.palette()
+        placeholder_palette.setColor(
+            QPalette.ColorRole.PlaceholderText, QColor(168, 172, 182, 210)
+        )
+        self._scratch_input.setPalette(placeholder_palette)
+        footer.addWidget(self._scratch_input, 1)
         details_layout.addLayout(footer)
         self._layout.addWidget(self._details_panel)
 
@@ -732,6 +751,18 @@ class KeyMonitorWindow(QWidget):
         detail_text = self._neutral_detail_text()
         self._hold_detail.setStyleSheet(f"color: {detail_text}; background: transparent;")
         self._release_detail.setStyleSheet(f"color: {detail_text}; background: transparent;")
+        scratch_height = max(22, round(30 * scale))
+        self._scratch_input.setFixedHeight(scratch_height)
+        self._scratch_input.setMinimumWidth(max(90, round(190 * scale)))
+        self._scratch_input.setStyleSheet(
+            f"QLineEdit#key_monitor_scratch_input {{ color: {detail_text}; "
+            "background-color: rgba(255,255,255,24); "
+            "border: 1px solid rgba(255,255,255,125); "
+            f"border-radius: {max(4, round(7 * scale))}px; "
+            f"padding: 0 {max(5, round(8 * scale))}px; font-size: {body_px}px; }} "
+            "QLineEdit#key_monitor_scratch_input:focus { "
+            "border-color: rgba(243,168,190,220); background-color: rgba(255,255,255,38); }"
+        )
         self._details_panel.setStyleSheet(
             f"QWidget#key_monitor_details_panel {{ background-color: {self._detail_rgba()}; "
             f"border: 1px solid rgba(255,255,255,90); border-radius: {max(5, round(9 * scale))}px; }}"
@@ -826,6 +857,8 @@ class KeyMonitorWindow(QWidget):
         )
 
     def closeEvent(self, event) -> None:
+        # 这是一次性草稿区：关闭浮窗时先清空，且绝不写入设置或录像文件。
+        self._scratch_input.clear()
         self._save_settings()
         self.closed.emit()
         super().closeEvent(event)

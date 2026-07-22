@@ -9,7 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QLineEdit
 
 from src.core.hotkey_manager import PhysicalInputEvent
 from src.ui.key_monitor_window import (
@@ -217,6 +217,40 @@ class KeyMonitorWindowTests(unittest.TestCase):
             self.assertEqual(bottom_right.x(), window.width() - bottom_right.width() - 2)
             self.assertEqual(bottom_right.y(), window.height() - bottom_right.height() - 2)
             window.close()
+
+    def test_scratch_input_is_single_line_temporary_and_clears_on_close(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "keys.json"
+            window = KeyMonitorWindow(settings_path=path)
+            window.show()
+            self.app.processEvents()
+
+            scratch = window._scratch_input
+            self.assertIsInstance(scratch, QLineEdit)
+            self.assertEqual(scratch.placeholderText(), "可以在此输入按键")
+            self.assertGreaterEqual(scratch.maxLength(), 1_000_000)
+            self.assertGreater(
+                scratch.mapTo(window, QPoint()).x(),
+                window._release_detail.mapTo(window, QPoint()).x(),
+            )
+            self.assertGreater(
+                scratch.mapTo(window, QPoint()).y(),
+                window._history_scroll.mapTo(window, QPoint()).y(),
+            )
+
+            temporary_text = "1QER鼠标左键" * 5000
+            scratch.setText(temporary_text)
+            self.assertEqual(scratch.text(), temporary_text)
+            text_seen_when_closed = []
+            window.closed.connect(
+                lambda: text_seen_when_closed.append(window._scratch_input.text())
+            )
+            window.close()
+            self.app.processEvents()
+
+            self.assertEqual(text_seen_when_closed, [""])
+            saved = path.read_text(encoding="utf-8")
+            self.assertNotIn("1QER鼠标左键", saved)
 
     def test_window_position_is_remembered_and_restored_inside_the_screen(self):
         with tempfile.TemporaryDirectory() as directory:
