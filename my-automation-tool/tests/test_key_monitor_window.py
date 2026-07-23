@@ -211,6 +211,9 @@ class KeyMonitorWindowTests(unittest.TestCase):
             self.assertIn("rgba(255,255,255,225)", window._buttons["e"].styleSheet())
             self.assertIn("rgba(24,30,43", window._details_panel.styleSheet())
             self.assertRegex(window._clock_label.text(), r"^\d{2}:\d{2}:\d{2}:\d{3}$")
+            # At the allowed 50% window size the 22px base clock scales to 14px,
+            # still exactly twice the 7px detail text.
+            self.assertIn("font-size: 14px", window._clock_label.styleSheet())
             self.assertEqual(set(window._resize_handles), {"top_left", "top_right", "bottom_left", "bottom_right"})
             bottom_right = window._resize_handles["bottom_right"]
             self.assertLessEqual(bottom_right.width(), 10)
@@ -251,6 +254,24 @@ class KeyMonitorWindowTests(unittest.TestCase):
             self.assertEqual(text_seen_when_closed, [""])
             saved = path.read_text(encoding="utf-8")
             self.assertNotIn("1QER鼠标左键", saved)
+
+    def test_scratch_input_focus_is_quiet_and_reports_trigger_suppression(self):
+        with tempfile.TemporaryDirectory() as directory:
+            window = KeyMonitorWindow(settings_path=Path(directory) / "keys.json")
+            window.show()
+            self.app.processEvents()
+            changes = []
+            window.scratch_focus_changed.connect(changes.append)
+            window._scratch_input.setFocus(Qt.FocusReason.OtherFocusReason)
+            self.app.processEvents()
+            before = list(window._recent_events)
+            window.observe_input(self.event("e", True, time.perf_counter_ns()))
+            self.app.processEvents()
+            self.assertEqual(list(window._recent_events), before)
+            self.assertIn(True, changes)
+            window.close()
+            self.app.processEvents()
+            self.assertFalse(changes[-1])
 
     def test_window_position_is_remembered_and_restored_inside_the_screen(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -29,6 +29,7 @@ class ReplaySettings:
     microphone_device_id: str | None = None
     microphone_device_name: str | None = None
     microphone_gain_percent: int = 100
+    desktop_gain_percent: int = 150
 
 
 class ReplaySettingsStore:
@@ -78,6 +79,9 @@ class ReplaySettingsStore:
         microphone_gain_percent = loaded.get("microphone_gain_percent", 100)
         if not isinstance(microphone_gain_percent, int) or not 0 <= microphone_gain_percent <= 200:
             microphone_gain_percent = 100
+        desktop_gain_percent = loaded.get("desktop_gain_percent", 150)
+        if not isinstance(desktop_gain_percent, int) or not 0 <= desktop_gain_percent <= 300:
+            desktop_gain_percent = 150
         return ReplaySettings(
             directory.resolve(),
             duration,
@@ -90,6 +94,7 @@ class ReplaySettingsStore:
             microphone_device_id,
             microphone_device_name,
             microphone_gain_percent,
+            desktop_gain_percent,
         )
 
     def save(self, settings: ReplaySettings) -> ReplaySettings:
@@ -130,9 +135,12 @@ class ReplaySettingsStore:
             and settings.microphone_device_name.strip()
             else None,
             int(settings.microphone_gain_percent),
+            int(settings.desktop_gain_percent),
         )
         if not 0 <= validated.microphone_gain_percent <= 200:
             raise ValueError("麦克风音量只能是 0% 到 200%")
+        if not 0 <= validated.desktop_gain_percent <= 300:
+            raise ValueError("桌面声音音量只能是 0% 到 300%")
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary_name: str | None = None
         try:
@@ -153,6 +161,7 @@ class ReplaySettingsStore:
                         "microphone_device_id": validated.microphone_device_id,
                         "microphone_device_name": validated.microphone_device_name,
                         "microphone_gain_percent": validated.microphone_gain_percent,
+                        "desktop_gain_percent": validated.desktop_gain_percent,
                     },
                     temporary,
                     ensure_ascii=False,

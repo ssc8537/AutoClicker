@@ -1247,6 +1247,24 @@ class MainWindow(QMainWindow):
         )
         settings_form.addRow("编码模式", self._replay_encoder_mode)
 
+        desktop_gain_row = QWidget()
+        desktop_gain_layout = QHBoxLayout(desktop_gain_row)
+        desktop_gain_layout.setContentsMargins(0, 0, 0, 0)
+        self._desktop_gain = QSlider(Qt.Orientation.Horizontal)
+        self._desktop_gain.setObjectName("desktop_gain_slider")
+        self._desktop_gain.setRange(0, 300)
+        self._desktop_gain.setValue(self._replay_settings.desktop_gain_percent)
+        self._desktop_gain.setToolTip(
+            "100% 为系统原始音量；调高可放大较小的桌面声音，过高可能削波失真。"
+        )
+        self._desktop_gain_value = QLabel(
+            f"{self._replay_settings.desktop_gain_percent}%"
+        )
+        self._desktop_gain_value.setObjectName("desktop_gain_value")
+        desktop_gain_layout.addWidget(self._desktop_gain, 1)
+        desktop_gain_layout.addWidget(self._desktop_gain_value)
+        settings_form.addRow("桌面声音音量", desktop_gain_row)
+
         self._record_microphone = QCheckBox("录制麦克风声音（可选，默认关闭）")
         self._record_microphone.setObjectName("record_microphone_checkbox")
         self._record_microphone.setChecked(self._replay_settings.record_microphone)
@@ -1439,6 +1457,7 @@ class MainWindow(QMainWindow):
         self._replay_fps.currentIndexChanged.connect(self._save_replay_settings)
         self._replay_encoder_mode.currentIndexChanged.connect(self._save_replay_settings)
         self._record_microphone.toggled.connect(self._save_replay_settings)
+        self._desktop_gain.valueChanged.connect(self._on_desktop_gain_changed)
         self._microphone_gain.valueChanged.connect(self._on_microphone_gain_changed)
         self._choose_microphone_device_button.clicked.connect(
             self._choose_microphone_device
@@ -1474,6 +1493,9 @@ class MainWindow(QMainWindow):
         if self._key_monitor_window is None:
             self._key_monitor_window = KeyMonitorWindow()
             self._key_monitor_window.closed.connect(self._on_key_monitor_closed)
+            self._key_monitor_window.scratch_focus_changed.connect(
+                self._set_scratch_trigger_suppressed
+            )
         return self._key_monitor_window
 
     def _open_key_monitor(self) -> None:
@@ -1481,10 +1503,19 @@ class MainWindow(QMainWindow):
         hotkey_manager = getattr(self, "_hotkey_mgr", None)
         if hotkey_manager is not None:
             hotkey_manager.add_physical_observer(monitor.observe_input)
-        monitor.show()
+        if monitor.isMinimized():
+            monitor.showNormal()
+        else:
+            monitor.show()
         monitor.raise_()
 
+    def _set_scratch_trigger_suppressed(self, suppressed: bool) -> None:
+        hotkey_manager = getattr(self, "_hotkey_mgr", None)
+        if hotkey_manager is not None:
+            hotkey_manager.set_trigger_suppressed(suppressed)
+
     def _on_key_monitor_closed(self) -> None:
+        self._set_scratch_trigger_suppressed(False)
         monitor = self._key_monitor_window
         hotkey_manager = getattr(self, "_hotkey_mgr", None)
         if monitor is not None and hotkey_manager is not None:
@@ -1833,6 +1864,7 @@ class MainWindow(QMainWindow):
             self._replay_fps,
             self._replay_encoder_mode,
             self._record_microphone,
+            self._desktop_gain,
             self._choose_microphone_device_button,
             self._microphone_gain,
             self._choose_replay_directory_button,
@@ -1857,6 +1889,7 @@ class MainWindow(QMainWindow):
                     self._replay_settings.microphone_device_id,
                     self._replay_settings.microphone_device_name,
                     int(self._microphone_gain.value()),
+                    int(self._desktop_gain.value()),
                 )
             )
         except (OSError, UnicodeError, ValueError) as exc:
@@ -1874,6 +1907,10 @@ class MainWindow(QMainWindow):
 
     def _on_microphone_gain_changed(self, value: int) -> None:
         self._microphone_gain_value.setText(f"{value}%")
+        self._save_replay_settings()
+
+    def _on_desktop_gain_changed(self, value: int) -> None:
+        self._desktop_gain_value.setText(f"{value}%")
         self._save_replay_settings()
 
     def _schedule_audio_preview_restart(self) -> None:
@@ -2002,6 +2039,7 @@ class MainWindow(QMainWindow):
                 device.identifier,
                 device.name,
                 self._replay_settings.microphone_gain_percent,
+                self._replay_settings.desktop_gain_percent,
             )
         )
         self._microphone_device_name.setText(device.name)
@@ -2036,6 +2074,7 @@ class MainWindow(QMainWindow):
                 self._replay_settings.microphone_device_id,
                 self._replay_settings.microphone_device_name,
                 self._replay_settings.microphone_gain_percent,
+                self._replay_settings.desktop_gain_percent,
             )
         )
         self._refresh_replay_core_status()
@@ -2055,6 +2094,7 @@ class MainWindow(QMainWindow):
                 self._replay_settings.microphone_device_id,
                 self._replay_settings.microphone_device_name,
                 self._replay_settings.microphone_gain_percent,
+                self._replay_settings.desktop_gain_percent,
             )
         )
         self._refresh_replay_core_status()

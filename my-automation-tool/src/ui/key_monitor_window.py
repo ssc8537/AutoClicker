@@ -11,7 +11,7 @@ from pathlib import Path
 import tempfile
 import time
 
-from PySide6.QtCore import QPoint, QRect, QSize, Qt, QTimer, Signal, Slot
+from PySide6.QtCore import QEvent, QPoint, QRect, QSize, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import (
     QApplication,
@@ -158,6 +158,7 @@ class KeyMonitorWindow(QWidget):
     """透明白框按键窗；hook线程只发Signal，所有UI更新都在Qt线程。"""
 
     closed = Signal()
+    scratch_focus_changed = Signal(bool)
     physical_event_received = Signal(object)
 
     _MAX_KEYS = 32
@@ -350,6 +351,7 @@ class KeyMonitorWindow(QWidget):
         )
         self._scratch_input.setAccessibleName("临时按键输入框")
         self._scratch_input.setToolTip("仅临时保留；关闭按键记录窗口后自动清空")
+        self._scratch_input.installEventFilter(self)
         placeholder_palette = self._scratch_input.palette()
         placeholder_palette.setColor(
             QPalette.ColorRole.PlaceholderText, QColor(168, 172, 182, 210)
@@ -479,6 +481,10 @@ class KeyMonitorWindow(QWidget):
 
     @Slot(object)
     def _apply_physical_event(self, event: PhysicalInputEvent) -> None:
+        # The scratch box is intentionally a quiet typing area: keep the physical edge
+        # available to the replay logger, but do not animate/rewrite the monitor status.
+        if self._scratch_input.hasFocus():
+            return
         key = event.hotkey
         if key not in self._buttons:
             return
@@ -738,11 +744,12 @@ class KeyMonitorWindow(QWidget):
         self._history_title.setStyleSheet(
             f"color: {self._neutral_detail_text()}; font-size: {body_px}px; font-weight: 800; background: transparent;"
         )
+        clock_px = max(14, round(22 * scale))
         self._clock_label.setStyleSheet(
             f"color: rgba(255,255,255,245); background: rgba(0,0,0,32); "
             f"border: 1px solid rgba(255,255,255,205); border-radius: {max(4, round(7 * scale))}px; "
             f"padding: {max(2, round(3 * scale))}px {max(4, round(7 * scale))}px; "
-            f"font-size: {body_px}px; font-weight: 800;"
+            f"font-size: {clock_px}px; font-weight: 800;"
         )
         for label in (*self._recent_labels, self._hold_detail, self._release_detail):
             font = label.font()
@@ -808,6 +815,14 @@ class KeyMonitorWindow(QWidget):
     def _toggle_maximized(self) -> None:
         self.showNormal() if self.isMaximized() else self.showMaximized()
 
+    def eventFilter(self, watched, event) -> bool:
+        if watched is self._scratch_input:
+            if event.type() == QEvent.Type.FocusIn:
+                self.scratch_focus_changed.emit(True)
+            elif event.type() == QEvent.Type.FocusOut:
+                self.scratch_focus_changed.emit(False)
+        return super().eventFilter(watched, event)
+
     def enterEvent(self, event) -> None:
         self._window_controls.show()
         for handle in self._resize_handles.values():
@@ -858,6 +873,7 @@ class KeyMonitorWindow(QWidget):
 
     def closeEvent(self, event) -> None:
         # 这是一次性草稿区：关闭浮窗时先清空，且绝不写入设置或录像文件。
+        self.scratch_focus_changed.emit(False)
         self._scratch_input.clear()
         self._save_settings()
         self.closed.emit()

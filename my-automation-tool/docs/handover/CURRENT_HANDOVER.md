@@ -1,10 +1,12 @@
-# 当前交接：Stage 19 最终归档完成
+# 当前交接：Stage 19 实际使用回归已验收
 
 ## 当前状态
 
 用户已明确确认Stage 19D历史录像浏览、按键记录窗单行临时输入框以及此前全部功能验收通过。2026-07-23 用户再次明确授权把当前完整节点发布到GitHub默认主干`master`；发布使用普通提交，禁止强推。最终准确SHA直接读取`git log -1`或远端`refs/heads/master`，上一归档回退点仍为`a9029a8`。
 
 当前文档只保留各自职责明确的入口：根`PRODUCT_REQUIREMENTS.md`保存当前真实需求，`PROJECT_ROADMAP.md`保存阶段状态，`README.md`与`SETUP_GUIDE.md`面向下载者，本文面向下一位AI，`native-replay/BUILDING.md`与`THIRD_PARTY_NOTICES.md`保存可复现构建和许可。`CURRENT_ACCEPTANCE.md`暂时保留本次已通过的临时输入框验收范围与明确未实现项，后续再次归档时可移除并从Git历史恢复。
+
+2026-07-23用户实际使用后报告五项问题。本轮已实现：临时框聚焦时仅抑制宏触发/全局切换/OSD并继续保留录像旁路日志；最小化按键窗再次点击按钮会`showNormal()`恢复；桌面音轨新增0–300%增益并贯穿预检、正式录制和元数据；顶部时钟使用详情字号约2倍；30分钟导出改用单个UTF-8合并清单，不再把约180组视频/音频绝对路径放入Windows命令行。用户已确认验收教程全部通过，并授权把当前完整节点普通提交、推送到GitHub默认主干`master`。
 
 当前没有自动开始的下一阶段。未来AI只在用户提出新的明确范围后继续，不得自行扩展产品。
 
@@ -17,10 +19,10 @@
 - OSD不抢游戏焦点，启动提示显示计划循环1次、N次或`+∞`；单实例第二次启动会唤醒并前置旧窗口。
 - 开发连招完全不调用OBS：项目内Rust/WGC采集完整显示器，支持720p/1080p及15/30/45/60fps，GPU/CPU编码由用户明确选择。
 - “开始”只维护压缩分段滚动缓存；“保留过往”是唯一固化入口；“停止并清空”不命名、不导出。
-- 桌面声音为音轨1，可选麦克风为独立音轨2；未录像时两路真实WASAPI电平只预检、不保存。
+- 桌面声音为音轨1，可选麦克风为独立音轨2；桌面增益0–300%默认150%，未录像时两路真实WASAPI电平只预检、不保存。
 - 全局物理按键down/up使用单调时钟记录，不读取鼠标移动、不注入游戏，并保存JSONL、CSV、前台进程证据和中文按键名称。
 - 会话交付为`raw.mp4`、`raw.ass`、`input_subtitles.srt`、`events.jsonl`、`events.csv`、`metadata.json`和`native.log`；不再生成`perfect.mp4`。
-- 实时按键窗口支持高亮先后色、3/5/10条事件、透明度、四角缩放、位置记忆和`HH:mm:ss:fff`本地时间；详情底部另有不落盘、关闭即清空的单行临时输入框。
+- 实时按键窗口支持高亮先后色、3/5/10条事件、透明度、四角缩放、位置记忆和放大后的`HH:mm:ss:fff`本地时间；详情底部另有不落盘、关闭即清空的单行临时输入框。临时框聚焦时不启动宏或刷新实时状态，最小化后可由开发连招页重新恢复。
 - 历史录像按日期且最新在上，可播放原始视频、打开字幕/目录；删除必须选中、中文二次确认并移入Windows回收站。
 
 ## 源码与构建
@@ -38,12 +40,12 @@ Rust/Cargo固定为`C:\MAPL-Native-Replay\rustup\`和`C:\MAPL-Native-Replay\carg
 
 | 检查 | 结果 |
 |---|---|
-| Python单元测试 | 201项运行通过，7项环境跳过 |
-| Rust单元测试 | 4/4通过，使用锁定离线依赖 |
+| Python单元测试 | 206项运行通过，7项环境跳过；含180组视频/桌面/麦克风合并清单模拟 |
+| Rust单元测试 | 现有测试二进制4/4通过；新增清单测试因本机离线缓存缺`windows`测试依赖未重建，正常debug/release源码编译均通过 |
 | Python编译 | `python -m compileall -q .`通过 |
 | 差异检查 | `git diff --check`通过，仅现有Windows CRLF提示 |
-| 正式便携包 | `dist/MyAutoPlayer/MyAutoPlayer.exe`构建成功，3,059,207字节 |
-| 原生核心 | 718,336字节；SHA-256 `34EA839BCD953869C67CCA20FE58237BAFA0F2B2EA60E2C6DCA6A44CE1D4C45A` |
+| 正式便携包 | `dist/MyAutoPlayer/MyAutoPlayer.exe`构建成功，3,063,825字节；SHA-256 `8431AF3026C895A946D38CFC8A6C0062DFA3EF240E371F08A3980AA5C8DADA5C` |
+| 原生核心 | 725,504字节；源码release与包内SHA-256均为`5B2E0A39F8D46D8B2E562371D6F449E1D00CF1C965466CCF420E55725E15B1E2` |
 | 打包模块 | PyInstaller xref包含`native_replay`、`input_subtitles`和`replay_history` |
 | 发布隐私 | 正式包不含`replay_settings.json`、`key_monitor.json`、`ai_prompt.complete.md` |
 | 残留进程 | `MyAutoPlayer`、原生录像核心、Cargo、Rustc均为0 |

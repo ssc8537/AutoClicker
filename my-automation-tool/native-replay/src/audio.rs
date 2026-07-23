@@ -46,6 +46,7 @@ pub struct AudioConfig {
     pub microphone_enabled: bool,
     pub microphone_device_id: Option<String>,
     pub microphone_gain_percent: u32,
+    pub desktop_gain_percent: u32,
 }
 
 struct SharedState {
@@ -121,7 +122,7 @@ impl AudioRuntime {
         capture_threads.push(spawn_capture_thread(
             AudioSource::Desktop,
             None,
-            100,
+            config.desktop_gain_percent.min(300),
             shared.clone(),
             segment_tx.clone(),
             ready_tx.clone(),

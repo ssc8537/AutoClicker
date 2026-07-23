@@ -91,6 +91,7 @@ struct CaptureOptions {
     record_microphone: bool,
     microphone_device_id: Option<String>,
     microphone_gain_percent: u32,
+    desktop_gain_percent: u32,
 }
 
 struct AudioMonitorOptions {
@@ -100,6 +101,7 @@ struct AudioMonitorOptions {
     audio_info: PathBuf,
     microphone_device_id: Option<String>,
     microphone_gain_percent: u32,
+    desktop_gain_percent: u32,
 }
 
 struct MergeOptions {
@@ -137,6 +139,7 @@ struct CaptureFlags {
     record_microphone: bool,
     microphone_device_id: Option<String>,
     microphone_gain_percent: u32,
+    desktop_gain_percent: u32,
 }
 
 struct SegmentState {
@@ -209,6 +212,7 @@ impl GraphicsCaptureApiHandler for Capture {
             microphone_enabled: ctx.flags.record_microphone,
             microphone_device_id: ctx.flags.microphone_device_id.clone(),
             microphone_gain_percent: ctx.flags.microphone_gain_percent,
+            desktop_gain_percent: ctx.flags.desktop_gain_percent,
         })
         .map_err(|error| format!("音频采集初始化失败：{error}"))?;
         fs::write(
@@ -624,6 +628,7 @@ fn run_audio_monitor(options: AudioMonitorOptions) -> Result<(), AnyError> {
         microphone_enabled: true,
         microphone_device_id: options.microphone_device_id,
         microphone_gain_percent: options.microphone_gain_percent,
+        desktop_gain_percent: options.desktop_gain_percent,
     })
     .map_err(|error| format!("声音设备预检启动失败：{error}"))?;
     write_audio_runtime_info(&options.audio_info, &audio)?;
@@ -716,6 +721,7 @@ fn run_capture(options: CaptureOptions) -> Result<(), AnyError> {
         record_microphone: options.record_microphone,
         microphone_device_id: options.microphone_device_id,
         microphone_gain_percent: options.microphone_gain_percent,
+        desktop_gain_percent: options.desktop_gain_percent,
     };
     Capture::start(capture_settings(monitor, flags))?;
     Ok(())
@@ -746,6 +752,43 @@ fn merge_segments(options: MergeOptions) -> Result<(), AnyError> {
     fs::rename(&part, &options.output)?;
     emit_status("merge_finished", &format!("output={}", options.output.display()));
     Ok(())
+}
+
+fn merge_options_from_manifest(path: &Path) -> Result<MergeOptions, AnyError> {
+    let content = fs::read_to_string(path)
+        .map_err(|error| format!("无法读取合并清单 {}：{error}", path.display()))?;
+    let mut output = None;
+    let mut segments = Vec::new();
+    let mut desktop_segments = Vec::new();
+    let mut microphone_segments = Vec::new();
+    for (index, raw_line) in content.lines().enumerate() {
+        if raw_line.is_empty() {
+            continue;
+        }
+        let (kind, value) = raw_line
+            .split_once('\t')
+            .ok_or_else(|| format!("合并清单第 {} 行缺少制表符", index + 1))?;
+        if value.is_empty() {
+            return Err(format!("合并清单第 {} 行路径为空", index + 1).into());
+        }
+        match kind {
+            "output" => {
+                if output.replace(PathBuf::from(value)).is_some() {
+                    return Err("合并清单只能包含一个输出文件".into());
+                }
+            }
+            "video" => segments.push(PathBuf::from(value)),
+            "desktop" => desktop_segments.push(PathBuf::from(value)),
+            "microphone" => microphone_segments.push(PathBuf::from(value)),
+            other => return Err(format!("合并清单包含未知类型：{other}").into()),
+        }
+    }
+    Ok(MergeOptions {
+        output: output.ok_or("合并清单缺少输出文件")?,
+        segments,
+        desktop_segments,
+        microphone_segments,
+    })
 }
 
 fn merge_segments_to_part(
@@ -922,6 +965,12 @@ where
 
 fn parse_command() -> Result<Command, AnyError> {
     let arguments: Vec<String> = env::args().skip(1).collect();
+    if arguments.iter().any(|argument| argument == "--merge-manifest") {
+        if arguments.len() != 2 || arguments[0] != "--merge-manifest" {
+            return Err("--merge-manifest 只接受一个合并清单路径".into());
+        }
+        return Ok(Command::Merge(merge_options_from_manifest(Path::new(&arguments[1]))?));
+    }
     if arguments.iter().any(|argument| argument == "--merge-output") {
         let mut output = None;
         let mut segments = Vec::new();
@@ -956,6 +1005,7 @@ fn parse_command() -> Result<Command, AnyError> {
         let mut audio_info = None;
         let mut microphone_device_id = None;
         let mut microphone_gain_percent = 100_u32;
+        let mut desktop_gain_percent = 150_u32;
         let mut index = 0;
         while index < arguments.len() {
             let argument = &arguments[index];
@@ -979,6 +1029,7 @@ fn parse_command() -> Result<Command, AnyError> {
                     }
                 }
                 "--microphone-gain-percent" => microphone_gain_percent = value.parse()?,
+                "--desktop-gain-percent" => desktop_gain_percent = value.parse()?,
                 other => return Err(format!("未知声音预检参数：{other}").into()),
             }
         }
@@ -990,6 +1041,7 @@ fn parse_command() -> Result<Command, AnyError> {
             work_directory,
             microphone_device_id,
             microphone_gain_percent: microphone_gain_percent.min(200),
+            desktop_gain_percent: desktop_gain_percent.min(300),
         }));
     }
 
@@ -1014,6 +1066,7 @@ fn parse_command() -> Result<Command, AnyError> {
     let mut record_microphone = false;
     let mut microphone_device_id = None;
     let mut microphone_gain_percent = 100_u32;
+    let mut desktop_gain_percent = 150_u32;
     let mut index = 0;
     while index < arguments.len() {
         let argument = &arguments[index];
@@ -1052,6 +1105,7 @@ fn parse_command() -> Result<Command, AnyError> {
                 }
             }
             "--microphone-gain-percent" => microphone_gain_percent = value.parse()?,
+            "--desktop-gain-percent" => desktop_gain_percent = value.parse()?,
             other => return Err(format!("未知参数：{other}").into()),
         }
     }
@@ -1078,6 +1132,7 @@ fn parse_command() -> Result<Command, AnyError> {
         record_microphone,
         microphone_device_id,
         microphone_gain_percent: microphone_gain_percent.min(200),
+        desktop_gain_percent: desktop_gain_percent.min(300),
     }))
 }
 
@@ -1143,4 +1198,34 @@ fn json_optional_string(value: Option<&str>) -> String {
     value
         .map(|text| format!("\"{}\"", json_escape(text)))
         .unwrap_or_else(|| "null".to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn merge_manifest_keeps_a_thirty_minute_path_list_off_the_command_line() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let root = env::temp_dir().join(format!("mapl-merge-plan-{}-{unique}", std::process::id()));
+        fs::create_dir_all(&root).expect("create test directory");
+        let plan = root.join("merge-plan.txt");
+        let mut lines = vec![format!("output\t{}", root.join("raw.mp4").display())];
+        for index in 1..=180 {
+            lines.push(format!("video\t{}", root.join(format!("segment-{index:06}.mp4")).display()));
+            lines.push(format!("desktop\t{}", root.join(format!("desktop-{index:06}.mp4")).display()));
+            lines.push(format!("microphone\t{}", root.join(format!("microphone-{index:06}.mp4")).display()));
+        }
+        fs::write(&plan, lines.join("\n") + "\n").expect("write merge plan");
+
+        let options = merge_options_from_manifest(&plan).expect("parse merge plan");
+        assert_eq!(options.segments.len(), 180);
+        assert_eq!(options.desktop_segments.len(), 180);
+        assert_eq!(options.microphone_segments.len(), 180);
+        assert_eq!(options.output, root.join("raw.mp4"));
+        fs::remove_dir_all(root).expect("remove test directory");
+    }
 }

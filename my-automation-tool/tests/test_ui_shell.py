@@ -458,6 +458,8 @@ class UiShellTests(unittest.TestCase):
         configure_key_monitor = self.window.findChild(QPushButton, "configure_key_monitor_button")
         encoder_mode = self.window.findChild(QComboBox, "replay_encoder_mode_selector")
         microphone = self.window.findChild(QCheckBox, "record_microphone_checkbox")
+        desktop_gain = self.window.findChild(QSlider, "desktop_gain_slider")
+        desktop_gain_value = self.window.findChild(QLabel, "desktop_gain_value")
         microphone_name = self.window.findChild(QLineEdit, "microphone_device_name")
         choose_microphone = self.window.findChild(
             QPushButton, "choose_microphone_device_button"
@@ -467,6 +469,9 @@ class UiShellTests(unittest.TestCase):
         self.assertEqual(quality.currentData(), "1080p")
         self.assertEqual(encoder_mode.currentData(), "gpu")
         self.assertFalse(microphone.isChecked())
+        self.assertEqual((desktop_gain.minimum(), desktop_gain.maximum()), (0, 300))
+        self.assertEqual(desktop_gain.value(), 150)
+        self.assertEqual(desktop_gain_value.text(), "150%")
         self.assertEqual(microphone_name.text(), "系统默认麦克风")
         self.assertEqual(choose_microphone.text(), "选择麦克风设备")
         self.assertEqual(fps.currentData(), 30)
@@ -485,12 +490,15 @@ class UiShellTests(unittest.TestCase):
         fps.setCurrentIndex(fps.findData(15))
         encoder_mode.setCurrentIndex(encoder_mode.findData("cpu"))
         microphone.setChecked(True)
+        desktop_gain.setValue(225)
         self.assertEqual(self.window._replay_settings.duration_minutes, 30)
         self.assertEqual(self.window._replay_settings.quality, "720p")
         self.assertEqual(self.window._replay_settings.fps, 15)
         self.assertEqual(self.window._replay_settings.encoder_mode, "cpu")
         self.assertTrue(self.window._replay_settings.record_microphone)
+        self.assertEqual(self.window._replay_settings.desktop_gain_percent, 225)
         self.assertTrue(self.window._replay_settings_store.load().record_microphone)
+        self.assertEqual(self.window._replay_settings_store.load().desktop_gain_percent, 225)
 
         selected = Path(self.appearance_directory.name) / "自定义视频"
         with patch("main.QFileDialog.getExistingDirectory", return_value=str(selected)):
@@ -502,6 +510,20 @@ class UiShellTests(unittest.TestCase):
         self.assertEqual(
             Path(open_url.call_args.args[0].toLocalFile()).resolve(), selected.resolve()
         )
+
+    def test_open_key_monitor_restores_an_existing_minimized_window(self):
+        monitor = KeyMonitorWindow(settings_path=Path(self.appearance_directory.name) / "monitor.json")
+        self.window._key_monitor_window = monitor
+        monitor.show()
+        monitor.showMinimized()
+        self.app.processEvents()
+        self.assertTrue(monitor.isMinimized())
+        self.window._open_key_monitor()
+        self.app.processEvents()
+        self.assertFalse(monitor.isMinimized())
+        self.assertTrue(monitor.isVisible())
+        monitor.close()
+        self.window._key_monitor_window = None
 
     def test_replay_history_lists_and_opens_the_selected_session(self):
         session = (

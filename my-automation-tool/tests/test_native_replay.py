@@ -8,6 +8,7 @@ from unittest.mock import Mock, patch
 from src.core.native_replay import (
     NativeAudioPreviewController,
     NativeReplayController,
+    _write_merge_plan,
     _wasapi_endpoint_id,
     native_replay_executable,
     normalise_replay_session_name,
@@ -18,6 +19,25 @@ from src.core.replay_settings import ReplaySettings
 
 
 class NativeReplayControllerTests(unittest.TestCase):
+    def test_thirty_minute_merge_plan_keeps_540_segment_paths_out_of_command(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            videos = [root / f"segment-{index:06}.mp4" for index in range(1, 181)]
+            desktop = [root / f"desktop-{index:06}.mp4" for index in range(1, 181)]
+            microphone = [root / f"microphone-{index:06}.mp4" for index in range(1, 181)]
+            plan = root / "merge-plan.txt"
+            output = root / "raw.mp4"
+            _write_merge_plan(plan, output, videos, desktop, microphone)
+
+            lines = plan.read_text(encoding="utf-8").splitlines()
+            command = ["recorder.exe", "--merge-manifest", str(plan)]
+            self.assertEqual(len(lines), 541)
+            self.assertEqual(lines[0], f"output\t{output}")
+            self.assertEqual(len([line for line in lines if line.startswith("video\t")]), 180)
+            self.assertEqual(len([line for line in lines if line.startswith("desktop\t")]), 180)
+            self.assertEqual(len([line for line in lines if line.startswith("microphone\t")]), 180)
+            self.assertEqual(len(command), 3)
+
     def test_audio_preview_uses_native_level_only_mode_and_cleans_up(self):
         with tempfile.TemporaryDirectory() as directory:
             executable = Path(directory) / "recorder.exe"
@@ -166,10 +186,14 @@ class NativeReplayControllerTests(unittest.TestCase):
             process.poll.return_value = None
             settings = ReplaySettings(root / "captures", 5, "720p", "cpu", 15)
             merge_commands = []
+            merge_plans = []
 
             def fake_merge(command, **_kwargs):
                 merge_commands.append(command)
-                output = Path(command[command.index("--merge-output") + 1])
+                plan = Path(command[command.index("--merge-manifest") + 1])
+                lines = plan.read_text(encoding="utf-8").splitlines()
+                merge_plans.append(lines)
+                output = Path(next(line.split("\t", 1)[1] for line in lines if line.startswith("output\t")))
                 output.touch()
                 return SimpleNamespace(returncode=0, stdout="merge ok\n")
 
@@ -217,9 +241,13 @@ class NativeReplayControllerTests(unittest.TestCase):
                 self.assertTrue(saved.events_jsonl.is_file())
                 self.assertTrue(saved.input_subtitles.is_file())
                 self.assertIn("大写 E", saved.input_subtitles.read_text(encoding="utf-8-sig"))
-                self.assertIn("--desktop-segment", merge_commands[0])
-                self.assertNotIn("--microphone-segment", merge_commands[0])
+                self.assertEqual(merge_commands[0][1], "--merge-manifest")
+                self.assertEqual(len(merge_commands[0]), 3)
+                self.assertTrue(any(line.startswith("video\t") for line in merge_plans[0]))
+                self.assertTrue(any(line.startswith("desktop\t") for line in merge_plans[0]))
+                self.assertFalse(any(line.startswith("microphone\t") for line in merge_plans[0]))
                 saved_metadata = json.loads(saved.metadata.read_text(encoding="utf-8"))
+                self.assertEqual(saved_metadata["desktop_gain_percent"], 150)
                 self.assertEqual(
                     saved_metadata["desktop_audio_discontinuities_recovered"], 2
                 )

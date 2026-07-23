@@ -83,6 +83,29 @@ class HotkeyManagerTests(unittest.TestCase):
         self.assertEqual(started, ["start"])
         self.assertEqual(stopped, ["stop"])
 
+    def test_temporary_input_suppresses_new_triggers_but_keeps_release_safe(self):
+        manager, _handler, started, stopped = self.make_handler(TriggerMode.DOWN)
+        manager.set_trigger_suppressed(True)
+        manager._dispatch_physical_event("f9", True)
+        manager._dispatch_physical_event("f9", False)
+        self.assertEqual(started, [])
+        self.assertEqual(stopped, ["stop"])
+
+        manager.set_trigger_suppressed(False)
+        manager._dispatch_physical_event("f9", True)
+        self.assertEqual(started, ["start"])
+        manager.set_trigger_suppressed(True)
+        manager._dispatch_physical_event("f9", False)
+        self.assertEqual(stopped, ["stop", "stop"])
+
+    def test_temporary_input_suppresses_global_toggle_status(self):
+        manager = HotkeyManager()
+        manager.set_global_disable_key("f9")
+        manager.set_trigger_suppressed(True)
+        manager._dispatch_physical_event("f9", True)
+        manager._dispatch_physical_event("f9", False)
+        self.assertFalse(manager.global_disabled)
+
     def test_down_release_is_an_idempotent_stop_even_for_finite_runs(self):
         _, handler, started, stopped = self.make_handler(TriggerMode.DOWN)
         handler(self.event("down"))

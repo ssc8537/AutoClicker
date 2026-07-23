@@ -33,6 +33,7 @@ class ReplaySettingsTests(unittest.TestCase):
                 "device-123",
                 "USB 麦克风",
                 150,
+                225,
             )
             self.assertEqual(store.save(expected), expected)
             self.assertEqual(store.load(), expected)
@@ -46,6 +47,7 @@ class ReplaySettingsTests(unittest.TestCase):
             self.assertEqual(raw["microphone_device_id"], "device-123")
             self.assertEqual(raw["microphone_device_name"], "USB 麦克风")
             self.assertEqual(raw["microphone_gain_percent"], 150)
+            self.assertEqual(raw["desktop_gain_percent"], 225)
 
     def test_invalid_values_fail_closed_to_defaults(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -63,6 +65,7 @@ class ReplaySettingsTests(unittest.TestCase):
                         "record_microphone": "yes",
                         "microphone_device_id": 123,
                         "microphone_device_name": [],
+                        "desktop_gain_percent": 999,
                     }
                 ),
                 encoding="utf-8",

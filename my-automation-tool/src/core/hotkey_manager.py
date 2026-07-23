@@ -85,8 +85,18 @@ class HotkeyManager:
         self._pressed_hotkeys: set[str] = set()
         self._queued_physical_state: dict[str, bool] = {}
         self._global_disable_key_pressed = False
+        self._trigger_suppressed = False
         self._listening = False
         self._physical_observers: list[callable] = []
+
+    def set_trigger_suppressed(self, suppressed: bool) -> None:
+        """Temporarily block new macro/global-toggle presses without hiding observers.
+
+        The replay/key-monitor observers still receive the original physical edges. Releases
+        are also allowed through so an already running down-mode macro can stop safely.
+        """
+        with self._lock:
+            self._trigger_suppressed = bool(suppressed)
 
     def add_physical_observer(self, callback) -> None:
         with self._lock:
@@ -481,7 +491,9 @@ class HotkeyManager:
                 # 清除了 press 账本，仍必须把真实松开交给按下模式停止。
                 self._pressed_hotkeys.discard(hotkey)
             disabled = self._global_disabled
-        if is_pressed and (disabled or self.is_mouse_over_window()):
+        with self._lock:
+            suppressed = self._trigger_suppressed
+        if is_pressed and (disabled or suppressed or self.is_mouse_over_window()):
             return
         callbacks: list[tuple[callable, int]] = []
         stop_callbacks: list[tuple[callable, int]] = []
@@ -524,6 +536,8 @@ class HotkeyManager:
                 self._global_disable_key_pressed = False
             return
         with self._lock:
+            if self._trigger_suppressed:
+                return
             if self._global_disable_key_pressed:
                 return
             self._global_disable_key_pressed = True

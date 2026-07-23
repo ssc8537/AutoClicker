@@ -107,6 +107,21 @@ def normalise_replay_session_name(value: object) -> str:
     return name
 
 
+def _write_merge_plan(
+    path: Path,
+    output: Path,
+    video_segments: list[Path],
+    desktop_segments: list[Path],
+    microphone_segments: list[Path],
+) -> None:
+    """Write an unbounded segment list while the process command stays constant-size."""
+    lines = [f"output\t{output}"]
+    lines.extend(f"video\t{segment}" for segment in video_segments)
+    lines.extend(f"desktop\t{segment}" for segment in desktop_segments)
+    lines.extend(f"microphone\t{segment}" for segment in microphone_segments)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+
+
 class NativeReplayController:
     """Own one native rolling buffer and export immutable recent snapshots."""
 
@@ -198,6 +213,7 @@ class NativeReplayController:
                 "--record-microphone", str(settings.record_microphone).lower(),
                 "--microphone-device-id", _wasapi_endpoint_id(settings.microphone_device_id),
                 "--microphone-gain-percent", str(settings.microphone_gain_percent),
+                "--desktop-gain-percent", str(settings.desktop_gain_percent),
                 "--rotate-file", str(buffer.rotate_file),
                 "--rotate-ack", str(buffer.rotate_ack),
                 "--segment-seconds", str(SEGMENT_SECONDS),
@@ -379,13 +395,17 @@ class NativeReplayController:
                 pinned_microphone = self._pin_audio_segments(
                     buffer, pinned_dir, microphone_audio
                 )
-                merge_command = [str(executable), "--merge-output", str(session.raw_video)]
-                for segment in pinned_segments:
-                    merge_command.extend(("--segment", str(segment)))
-                for segment in pinned_desktop:
-                    merge_command.extend(("--desktop-segment", str(segment)))
-                for segment in pinned_microphone:
-                    merge_command.extend(("--microphone-segment", str(segment)))
+                # Windows CreateProcess has a finite command-line length. A 30-minute
+                # save can contain hundreds of paths, so pass one compact UTF-8 plan.
+                merge_plan = pinned_dir / "merge-plan.txt"
+                _write_merge_plan(
+                    merge_plan,
+                    session.raw_video,
+                    pinned_segments,
+                    pinned_desktop,
+                    pinned_microphone,
+                )
+                merge_command = [str(executable), "--merge-manifest", str(merge_plan)]
                 creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
                 completed = subprocess.run(
                     merge_command,
@@ -448,6 +468,8 @@ class NativeReplayController:
                     "desktop_audio_track_id": 2,
                     "microphone_audio_track_ordinal": 2 if capture_settings.record_microphone else None,
                     "microphone_audio_track_id": 3 if capture_settings.record_microphone else None,
+                    "desktop_gain_percent": capture_settings.desktop_gain_percent,
+                    "microphone_gain_percent": capture_settings.microphone_gain_percent,
                     "audio_format": "AAC 48kHz stereo",
                     "audio_sample_rate_hz": 48_000,
                     "audio_channels": 2,
@@ -883,6 +905,7 @@ class NativeAudioPreviewController:
             "--audio-info", str(root / "audio-info.json"),
             "--microphone-device-id", _wasapi_endpoint_id(settings.microphone_device_id),
             "--microphone-gain-percent", str(settings.microphone_gain_percent),
+            "--desktop-gain-percent", str(settings.desktop_gain_percent),
         ]
         log_stream = log_file.open("w", encoding="utf-8", newline="\n")
         try:
