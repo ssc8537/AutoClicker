@@ -1,66 +1,64 @@
-"""由“（一）千咲合轴卡提.json”只读等价转换。"""
-
-NAME = "（一）千咲合轴卡提"  # 宏库中显示的脚本名称
+NAME = "(一)千咲合轴卡提"   # 宏库中显示的脚本名称
 HOTKEY = 'mouse_back'             # 物理触发键：鼠标侧键 1
-MODE = 'down'                     # 按住侧键运行，松开后请求停止
-COUNT = 0                         # 0 表示持续重复 run，直到松开或手动停止
-SPEED = 1.0                       # 等待速度倍率；只影响 player.sleep()
-ENABLED = False                   # False 表示当前默认不启用此宏
+MODE = 'down'                # 按住侧键运行，松开后立即请求停止
+COUNT = 1                     # 每次触发只执行一轮 run(player)
+SPEED = 1.0                   # 等待速度倍率
+ENABLED = True               # 当前未启用
 
+def _动作(player, 动作名称, 按住毫秒, 等待毫秒=0):
+    """发送共享动作。"""
+    player.按键(动作名称, hold_ms=按住毫秒)
+    if 等待毫秒:
+        player.sleep(等待毫秒)
 
-def _点击(player, key):
-    """点击一个物理键 15ms，并在点击完成后额外等待 15ms。"""
-    if key == "mouse_left":
-        player.mouse_click("left", hold_ms=15)
-    else:
-        player.tap(key, hold_ms=15)
-    player.sleep(15)
+def _平A(player, 按住毫秒, 等待毫秒=0):
+    """按一次平A（鼠标左键）。"""
+    player.mouse_click("left", hold_ms=按住毫秒)
+    if 等待毫秒:
+        player.sleep(等待毫秒)
 
+def _重击(player, 按住毫秒, 等待毫秒=0):
+    """以长按鼠标左键执行一次重击；参数均为正常速度毫秒。"""
+    player.mouse_click("left", hold_ms=按住毫秒)
+    if 等待毫秒:
+        player.sleep(等待毫秒)
+
+def _闪避(player, 按住毫秒, 等待毫秒=0):
+    """点击鼠标右键执行文字轴中的“闪”。"""
+    player.mouse_click("right", hold_ms=按住毫秒)
+    if 等待毫秒:
+        player.sleep(等待毫秒)
 
 def run(player):
-    # 起手：点击物理 E 键，再等待 50ms。程序不判断这个键是否成功释放技能。
-    _点击(player, "e")
-    player.sleep(50)
+    # 千咲强E 卡提声骸A23 千咲锯A23 卡提A4 千咲锯终结 变奏卡提
+    # 角色映射：1=卡提、2=夏空、3=千咲
 
-    # 切卡提-Q-a2-a3，5 次。
-    for _ in range(5):
-        _点击(player, "1")
-        player.sleep(35)
-        _点击(player, "q")
-        player.sleep(35)
-        _点击(player, "mouse_left")
-        player.sleep(10)
-        _点击(player, "mouse_left")
-        player.sleep(10)
-        _点击(player, "mouse_left")
-        player.sleep(10)
+    # 千咲强E
+    for _ in range(4):
+        _动作(player, "战技", 26, 60)
 
-    # 切千咲-电锯a2-a3，8 次。
-    for _ in range(8):
-        _点击(player, "3")
-        player.sleep(50)
-        _点击(player, "mouse_left")
-        player.sleep(50)
+    # 卡提声骸A23
+    _动作(player, "角色 1", 33, 20)
+    _动作(player, "声骸", 20, 0)
+    for _ in range(4):
+        _平A(player, 37, 180)
 
-    # 切卡提-a4，5 次。
-    for _ in range(5):
-        _点击(player, "1")
-        player.sleep(35)
-        _点击(player, "mouse_left")
-        player.sleep(35)
+    # 千咲锯A23
+    _动作(player, "角色 3", 37, 20)
+    for _ in range(4):
+        _平A(player, 37, 210)
 
-    # 切千咲-电锯下砸，8 次。
-    for _ in range(8):
-        _点击(player, "3")
-        player.sleep(30)
-        _点击(player, "mouse_left")
-        player.sleep(30)
-        _点击(player, "mouse_left")
-        player.sleep(30)
+    # 卡提A4
+    _动作(player, "角色 1", 33, 20)
+    for _ in range(4):
+        _平A(player, 37, 60)
 
-    player.sleep(100)
+    # 千咲终结
+    for _ in range(6):
+        _动作(player, "角色 3", 37, 70)
+    for _ in range(4):
+        _平A(player, 37, 80)
 
-    # 变奏卡提，100 次。
-    for _ in range(100):
-        _点击(player, "1")
-        player.sleep(35)
+    # 延卡
+    for _ in range(16):
+        _动作(player, "角色 1", 33, 120)

@@ -12,11 +12,11 @@
 """
 
 NAME = "卡夏千9秒启动"       # 宏库中显示的名称
-HOTKEY = 'mouse_forward'        # 物理触发键：鼠标侧键 1
+HOTKEY = 'z'        # 物理触发键：鼠标侧键 1
 MODE = 'down'                # 按住侧键运行，松开后立即请求停止
 COUNT = 1                     # 每次触发只执行一轮 run(player)
 SPEED = 1.0                   # 等待速度倍率
-ENABLED = True               # 当前未启用
+ENABLED = False               # 当前未启用
 
 def _动作(player, 动作名称, 按住毫秒, 等待毫秒=0):
     """发送共享动作。"""
@@ -43,7 +43,7 @@ def run(player):
     # 本文件只对应启动轴：千咲EA3 → 卡提跳E声骸 → 夏空声骸A4跳A → 千咲A4跳A → 夏空A4跳A → 千咲大招。
     # 千咲瞬间--强E 夏空A4跳Z 千咲锯A23 卡提A23 千咲终结 卡提A4 夏空R延千 延卡
     # 卡提跳A开大-手动操作
-    # 角色映射：1=千咲、2=卡提、3=夏空。
+    # 角色映射：1=卡提、2=夏空、3=千咲。
 
     # 启动：千咲 E + A3。
     player.sleep(20)
@@ -52,13 +52,13 @@ def run(player):
         _平A(player, 31, 60)
 
     # 卡提 跳 + E 声骸
-    _动作(player, "角色 2", 33, 30)
+    _动作(player, "角色 1", 33, 30)
     _动作(player, "跳跃", 32, 150)
     _动作(player, "战技", 34, 30)
     _动作(player, "声骸", 20, 0)
 
     # 夏空 A4 声骸 跳 A。
-    _动作(player, "角色 3", 33, 100)
+    _动作(player, "角色 2", 33, 100)
     for _ in range(4):
         _平A(player, 37, 150)
     _动作(player, "声骸", 20, 0)
@@ -67,7 +67,7 @@ def run(player):
         _平A(player, 37, 100)
 
     # 千咲 A4 跳 A。
-    _动作(player, "角色 1", 37, 20)
+    _动作(player, "角色 3", 37, 20)
     for _ in range(4):
         _平A(player, 37, 220)
     _动作(player, "跳跃", 41, 33)
@@ -75,7 +75,7 @@ def run(player):
         _平A(player, 37, 100)
 
     # 夏空 A4 跳 A。
-    _动作(player, "角色 3", 33, 100)
+    _动作(player, "角色 2", 33, 100)
     for _ in range(4):
         _平A(player, 37, 150)
     _动作(player, "跳跃", 41, 93)
@@ -83,7 +83,7 @@ def run(player):
         _平A(player, 37, 100)
 
     # 千咲 大招 强化E。
-    _动作(player, "角色 1", 37, 20)
+    _动作(player, "角色 3", 37, 20)
     for _ in range(4):
         _动作(player, "大招", 20, 500)
         player.sleep(300)
@@ -94,39 +94,39 @@ def run(player):
         _动作(player, "战技", 20, 50)
 
     # 夏空A4 跳 Z重击
-    _动作(player, "角色 3", 33, 100)
+    _动作(player, "角色 2", 33, 100)
     for _ in range(4):
         _平A(player, 37, 150)
     _动作(player, "跳跃", 41, 93)
     _重击(player, 240, 10)
 
     # 千咲锯A23
-    _动作(player, "角色 1", 37, 20)
+    _动作(player, "角色 3", 37, 20)
     for _ in range(4):
         _平A(player, 37, 210)
 
     # 卡提A23
-    _动作(player, "角色 2", 33, 20)
+    _动作(player, "角色 1", 33, 20)
     for _ in range(4):
         _平A(player, 37, 180)
 
     # 千咲终结
-    _动作(player, "角色 1", 37, 20)
+    _动作(player, "角色 3", 37, 20)
     for _ in range(4):
         _平A(player, 37, 180)
 
     # 卡提A4
-    _动作(player, "角色 2", 33, 20)
+    _动作(player, "角色 1", 33, 20)
     for _ in range(2):
         _平A(player, 37, 20)
 
     # 夏空 R 延千 延卡
-    _动作(player, "角色 3", 33, 20)
+    _动作(player, "角色 2", 33, 20)
     for _ in range(4):
         _动作(player, "大招", 20, 500)
         player.sleep(380)
-    _动作(player, "角色 1", 37, 20)
+    _动作(player, "角色 3", 37, 20)
     for _ in range(8):
-        _动作(player, "角色 2", 37, 105)
+        _动作(player, "角色 1", 37, 105)
 
     # 卡提跳A开大-手动操作

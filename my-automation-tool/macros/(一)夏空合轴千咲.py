@@ -1,83 +1,71 @@
-"""由“（一）夏空合轴千咲.json”只读等价转换。"""
-
-NAME = "（一）夏空合轴千咲"  # 宏库中显示的脚本名称
+NAME = "(一)夏空合轴千咲"   # 宏库中显示的脚本名称
 HOTKEY = 'mouse_forward'          # 物理触发键：鼠标侧键 2
-MODE = 'down'                     # 按住侧键运行，松开后请求停止
-COUNT = 0                         # 0 表示持续重复 run，直到松开或手动停止
-SPEED = 1.0                       # 等待速度倍率；只影响 player.sleep()
-ENABLED = False                   # False 表示当前默认不启用此宏
+MODE = 'down'                # 按住侧键运行，松开后立即请求停止
+COUNT = 1                     # 每次触发只执行一轮 run(player)
+SPEED = 1.0                   # 等待速度倍率
+ENABLED = True               # 当前未启用
 
+def _动作(player, 动作名称, 按住毫秒, 等待毫秒=0):
+    """发送共享动作。"""
+    player.按键(动作名称, hold_ms=按住毫秒)
+    if 等待毫秒:
+        player.sleep(等待毫秒)
 
-def _点击(player, key):
-    """点击一个物理键 15ms，并在点击完成后额外等待 15ms。"""
-    if key == "mouse_left":
-        player.mouse_click("left", hold_ms=15)
-    else:
-        player.tap(key, hold_ms=15)
-    player.sleep(15)
+def _平A(player, 按住毫秒, 等待毫秒=0):
+    """按一次平A（鼠标左键）。"""
+    player.mouse_click("left", hold_ms=按住毫秒)
+    if 等待毫秒:
+        player.sleep(等待毫秒)
 
+def _重击(player, 按住毫秒, 等待毫秒=0):
+    """以长按鼠标左键执行一次重击；参数均为正常速度毫秒。"""
+    player.mouse_click("left", hold_ms=按住毫秒)
+    if 等待毫秒:
+        player.sleep(等待毫秒)
+
+def _闪避(player, 按住毫秒, 等待毫秒=0):
+    """点击鼠标右键执行文字轴中的“闪”。"""
+    player.mouse_click("right", hold_ms=按住毫秒)
+    if 等待毫秒:
+        player.sleep(等待毫秒)
 
 def run(player):
-    # 起手缓冲：先等待 100ms，避免触发键刚按下就立刻发送动作。
-    player.sleep(100)
+    # 夏空跳A 千咲EA大A 夏空A4跳A 千咲A出剪刀 夏空A4
+    # 手动操作---战技Z重开大
+    # 角色映射：1=卡提、2=夏空、3=千咲
 
-    # 跳跃一次。range(1) 保留自原 JSON，也可以直接理解为“执行一次”。
-    for _ in range(1):
-        _点击(player, "space")
-        player.sleep(100)
-
-    # 接两次鼠标左键，每次点击后再等待 100ms。
+    # 夏空跳 声骸 A
+    _动作(player, "跳跃", 33, 30)
     for _ in range(2):
-        _点击(player, "mouse_left")
-        player.sleep(100)
+        _动作(player, "声骸", 36, 0)
+    for _ in range(2):
+        _平A(player, 37, 40)
 
-    # 切千咲-E-E-E-A-A-R，4 次。
+    # 千咲EA大招A。
+    _动作(player, "角色 3", 37, 20)
+    _动作(player, "战技", 34, 30)
+    for _ in range(2):
+        _平A(player, 37, 100)
     for _ in range(4):
-        _点击(player, "3")
-        player.sleep(100)
-        _点击(player, "e")
-        player.sleep(20)
-        _点击(player, "e")
-        player.sleep(20)
-        _点击(player, "e")
-        player.sleep(20)
-        _点击(player, "mouse_left")
-        player.sleep(10)
-        _点击(player, "mouse_left")
-        player.sleep(10)
-        _点击(player, "r")
-        player.sleep(50)
-
-    player.sleep(2100)
-
-    # A-切夏空，6 次。
-    for _ in range(6):
-        _点击(player, "mouse_left")
-        player.sleep(100)
-        _点击(player, "2")
-        player.sleep(100)
-
-    # 原 JSON 此处 mark 写“等待100000秒”，实际 ms/ex 都是 0，严格保留 0ms。
-    player.sleep(0)
-
-    for _ in range(1):
-        _点击(player, "space")
-        player.sleep(100)
-
-    # 千咲短段：切到 3 号位并点击左键，共两轮。
+        _动作(player, "大招", 20, 500)
+        player.sleep(300)
     for _ in range(2):
-        _点击(player, "mouse_left")
-        player.sleep(100)
+        _平A(player, 37, 120)
 
+    # 夏空 A4 跳 A。
+    _动作(player, "角色 2", 33, 60)
+    for _ in range(4):
+        _平A(player, 37, 140)
+    _动作(player, "跳跃", 41, 93)
     for _ in range(2):
-        _点击(player, "3")
-        player.sleep(30)
-        _点击(player, "mouse_left")
-        player.sleep(30)
+        _平A(player, 37, 100)
 
-    # 收尾重复段：2 号位与左键交替 100 次；松开触发键仍可中断。
-    for _ in range(100):
-        _点击(player, "2")
-        player.sleep(20)
-        _点击(player, "mouse_left")
-        player.sleep(20)
+    # 千咲A出剪刀。
+    _动作(player, "角色 3", 37, 20)
+    for _ in range(4):
+        _平A(player, 37, 220)
+
+    # 夏空 A4
+    _动作(player, "角色 2", 33, 100)
+    for _ in range(4):
+        _平A(player, 37, 150)
