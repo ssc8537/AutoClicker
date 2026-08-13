@@ -1,6 +1,14 @@
-# 当前交接：Stage 19 实际使用回归已验收
+# 当前交接：Stage 20 鼠标 X/Y 相对移动与固定压枪宏已验收归档
 
 ## 当前状态
+
+Stage 20 已完成源码、自动测试、文档同步、正式便携 EXE 构建和 Windows 11 人工验收。最终公开 API 为 `player.mouse_move(x, y, duration_ms=0)`：x/y 是相对当前光标的整数位移（X 正数向右、Y 正数向下），范围 -10000–10000；duration_ms 为 0–10000，0 表示一次发送，大于 0 表示约 10ms 分步平滑移动，真实移动时长不受 SPEED 缩放。停止、down 松开、switch 再按、全局禁用和退出都会阻止后续步骤。
+
+用户无法用原四方向教程直接验收后，本轮已续写 `macros/z-自动压枪宏.py` 作为最简可运行验收脚本：保留用户的 `backslash`/`down` 元数据并启用；按住触发键时 `mouse_down("left")`，以固定每15ms向下1单位的节奏移动，松开或停止后在 `finally` 释放左键。当前明确没有随机化、武器识别或反作弊规避。
+
+开发连招页另新增“麦克风预检”独立开关，每次程序启动默认关闭。关闭时 Python 控制器向原生核心传 `--record-microphone false`，Rust `AudioRuntime` 不创建麦克风采集源；桌面声音预检仍继续。用户主动开启后才以 `true` 重启预检并读取所选麦克风。此开关只控制空闲预检，正式录像的独立麦克风音轨仍由“录制麦克风声音”设置决定。
+
+优秀案例 1 的只读证据位于 `my-automation-tool/优秀案例1-Quickinput/Quickinput-main/source/src/tools/input.h:63-76` 与 `source/src/interpreter.cpp:236-285`：相对移动使用 `MOUSEEVENTF_MOVE` 和 `MOUSEINPUT(dx, dy)`，绝对位置另有独立接口；`source/src/func.cpp:139-167` 使用整数累计分步，解释“移动”UI 与约 10ms 节奏。本项目仅适配相对行为，不复制 C++、案例格式、绝对坐标、轨迹或滚轮能力。
 
 用户已明确确认Stage 19D历史录像浏览、按键记录窗单行临时输入框以及此前全部功能验收通过。2026-07-23 用户再次明确授权把当前完整节点发布到GitHub默认主干`master`；发布使用普通提交，禁止强推。最终准确SHA直接读取`git log -1`或远端`refs/heads/master`，上一归档回退点仍为`a9029a8`。
 
@@ -9,6 +17,8 @@
 2026-07-23用户实际使用后报告五项问题。本轮已实现：临时框聚焦时仅抑制宏触发/全局切换/OSD并继续保留录像旁路日志；最小化按键窗再次点击按钮会`showNormal()`恢复；桌面音轨新增0–300%增益并贯穿预检、正式录制和元数据；顶部时钟使用详情字号约2倍；30分钟导出改用单个UTF-8合并清单，不再把约180组视频/音频绝对路径放入Windows命令行。用户已确认验收教程全部通过，并授权把当前完整节点普通提交、推送到GitHub默认主干`master`。
 
 当前没有自动开始的下一阶段。未来AI只在用户提出新的明确范围后继续，不得自行扩展产品。
+
+本轮新增修改：`src/core/input_simulator.py` 的相对 `SendInput` 构造与 `MAPL` 标记；`src/core/script_player.py` 的严格校验、立即/平滑可中断 `mouse_move`；AI 提示词两份模板、`PRODUCT_REQUIREMENTS.md`、`README.md`、`PROJECT_ROADMAP.md` 和 Stage 20 验收文档。用户本轮明确指定续写 `macros/z-自动压枪宏.py`；归档发布时保留宏目录当前的新增、修改、改名、分组和删除状态，不恢复旧文件名或旧内容，也不上传重复压缩备份。
 
 按键记录窗底部的一次性单行临时输入框已由用户确认全部验收通过，并已重新生成`dist/MyAutoPlayer/`文件夹式便携包；用户将实际使用5–6小时后再反馈。用户另行提出“点击外部视频后仍把键盘输入送入临时框且不触发播放器快捷键”，但明确要求当前只记录、不实现；必须等用户再次授权后再处理焦点或受控输入逻辑。
 
@@ -36,6 +46,22 @@
 
 Rust/Cargo固定为`C:\MAPL-Native-Replay\rustup\`和`C:\MAPL-Native-Replay\cargo\`，MSVC/SDK固定为`C:\MAPL-Native-Replay\vs-buildtools\`，下载缓存位于项目`.tooling/native-replay/downloads/`。这些工具不在永久系统PATH中；删除前必须提醒用户会失去重新编译能力，但不会删除源码、宏、配置、日志或视频。
 
+## Stage 20 自动证据
+
+| 检查 | 结果 |
+|---|---|
+| 案例证据 | `优秀案例1.../source/src/tools/input.h:63-76` 与 `source/src/interpreter.cpp:236-285` 已核对；相对移动使用 `MOUSEEVENTF_MOVE`/`dx/dy`，不适配绝对位置和轨迹。 |
+| Stage 20 定向测试 | 播放器 15 项、底层输入 9 项通过；压枪宏假输入顺序为左键down→向下移动→中断→左键up；测试不真实移动鼠标。 |
+| 麦克风预检 | 原生控制器13项、UI 49项通过（6项环境跳过）；默认 false 与手动 true 参数均覆盖，关闭后桌面声音预检继续。 |
+| 本轮正式便携包 | 用户关闭旧程序后，标准 `dist/MyAutoPlayer/` 已重新构建成功；临时构建目录已清理。 |
+| 新包核验 | 标准 EXE 3,067,880 字节，SHA-256 `F03AE5EFC145364AB7219E1518A69D3CA77A5E72692C753B17FEFFB641248BC4`；原生核心 726,016 字节，源码 release 与包内 SHA-256 均为 `2B088D215FFA52229279CA5F7BD1819969DB267C3CA38219230D79ADE360B1C1`；包内压枪宏和两份 AI 提示词均与源码字节一致，私密运行状态 0 项，构建后无相关残留进程。 |
+| 产品回归 | 排除用户宏固定快照后 210 项通过、7 项环境跳过；AI 提示词 7 项、UI 48 项通过。完整套件另有 9 项旧宏快照失败，原因是用户当前宏已改名/删除/改键/改循环，本轮未恢复或改动。 |
+| Python 编译 | `main.py`、`src`、`tests` compileall 通过。 |
+| 差异检查 | `git diff --check` 通过（用户宏未纳入本轮检查范围）。 |
+| 正式便携包 | `dist/MyAutoPlayer/MyAutoPlayer.exe`，3,065,582 字节；SHA-256 `490372FBDC2DA8E1E6B30F554F2941D78305173A92F5D4C1C53B14C640F0D343`。 |
+| 原生核心 | 725,504 字节；源码 release 与包内 SHA-256 均为 `5B2E0A39F8D46D8B2E562371D6F449E1D00CF1C965466CCF420E55725E15B1E2`。 |
+| 发布隐私 | 包内无 `replay_settings.json`、`key_monitor.json`、`ai_prompt.complete.md`；构建后 MyAutoPlayer、原生核心、Cargo、Rustc 残留进程为 0。 |
+
 ## 最终自动证据
 
 | 检查 | 结果 |
@@ -56,7 +82,7 @@ Rust/Cargo固定为`C:\MAPL-Native-Replay\rustup\`和`C:\MAPL-Native-Replay\carg
 
 ## 用户文件与已知边界
 
-- 发布时保留用户当前宏目录的10个脚本，包括四个带`(一)/(二)`前缀的改名文件、现有脚本中文学习注释，以及新增的`macros/卡夏千9秒启动.py`；不得恢复旧文件名或旧内容。
+- 发布时以用户当前宏目录为准，保留顶层可运行脚本和`1-废弃脚本/`归档分组；不得恢复旧文件名、旧热键、旧循环次数或旧内容。`macros.zip`属于本地重复备份，不纳入源码仓库。
 - 中文输入法下发送的物理字母仍会进入目标窗口IME组合态；用户已接受英文完全正确、中文轻微偶发现象。
 - 不支持或禁止：鼠标轨迹、滚轮自动化、OCR/图像识别、游戏内存、DLL/驱动注入、OBS运行时依赖、手柄和反作弊绕过。
 - GitHub发布继续排除`build/`、`dist/`、`captures/`、日志、优秀案例源码，以及`replay_settings.json`、`key_monitor.json`、`ai_prompt.complete.md`等本机私密运行状态。

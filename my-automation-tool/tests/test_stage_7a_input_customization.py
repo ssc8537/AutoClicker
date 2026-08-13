@@ -18,7 +18,13 @@ from src.core.global_hotkey import (
 )
 from src.core.hotkey_manager import HotkeyManager
 from src.core.input_keys import display_input_key, normalise_input_key
-from src.core.input_simulator import _INPUT_MARKER, _make_kb_input, _make_mouse_input
+from src.core.input_simulator import (
+    _INPUT_MARKER,
+    MOUSEEVENTF_MOVE,
+    _make_kb_input,
+    _make_mouse_input,
+    move_mouse_relative,
+)
 from src.ui.trigger_key_edit import TriggerKeyEdit
 
 
@@ -79,6 +85,21 @@ class Stage7AInputCustomizationTests(unittest.TestCase):
         self.assertEqual(keyboard_input.union.ki.dwExtraInfo, _INPUT_MARKER)
         self.assertNotEqual(keyboard_input.union.ki.wScan, 0)
         self.assertEqual(_make_mouse_input(0x0002).union.mi.dwExtraInfo, _INPUT_MARKER)
+
+    def test_relative_move_input_uses_dx_dy_move_flag_and_mapl(self):
+        inp = _make_mouse_input(MOUSEEVENTF_MOVE, dx=-12, dy=34)
+        self.assertEqual(inp.type, input_simulator.INPUT_MOUSE)
+        self.assertEqual(inp.union.mi.dx, -12)
+        self.assertEqual(inp.union.mi.dy, 34)
+        self.assertEqual(inp.union.mi.dwFlags, MOUSEEVENTF_MOVE)
+        self.assertEqual(inp.union.mi.dwExtraInfo, _INPUT_MARKER)
+
+    def test_relative_move_sends_one_input_without_real_send(self):
+        with patch.object(input_simulator, "_send_input", return_value=1) as send:
+            move_mouse_relative(7, -8)
+        send.assert_called_once()
+        inp = send.call_args.args[0]
+        self.assertEqual((inp.union.mi.dx, inp.union.mi.dy), (7, -8))
 
     def test_sendinput_failure_is_logged_for_game_compatibility_diagnosis(self):
         with patch.object(input_simulator, "_last_send_input_warning", 0.0), patch.object(

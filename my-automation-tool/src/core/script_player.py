@@ -6,6 +6,7 @@ from collections.abc import Callable
 
 from src.core.input_simulator import (
     is_supported_key,
+    move_mouse_relative,
     mouse_down as press_mouse,
     mouse_up as release_mouse,
     press_key,
@@ -23,6 +24,9 @@ class ScriptPlayer:
     """脚本作者只使用受控输入 API，不直接接触线程或 SendInput。"""
 
     _MOUSE_BUTTONS = frozenset({"left", "right", "middle", "x1", "x2"})
+    _MOUSE_MOVE_LIMIT = 10_000
+    _MOUSE_MOVE_DURATION_LIMIT_MS = 10_000
+    _MOUSE_MOVE_STEP_MS = 10
 
     def __init__(
         self,
@@ -33,6 +37,7 @@ class ScriptPlayer:
         keybinds: GameKeybinds = DEFAULT_GAME_KEYBINDS,
         mouse_press: Callable[[str], None] = press_mouse,
         mouse_release: Callable[[str], None] = release_mouse,
+        mouse_move: Callable[[int, int], None] = move_mouse_relative,
     ):
         self._stop_event = stop_event
         self._speed = speed
@@ -41,6 +46,7 @@ class ScriptPlayer:
         self._keybinds = keybinds
         self._mouse_press = mouse_press
         self._mouse_release = mouse_release
+        self._mouse_move = mouse_move
         self._held_mouse_buttons: set[str] = set()
 
     def 切换(self, character: int) -> None:
@@ -155,6 +161,42 @@ class ScriptPlayer:
                 if self._stop_event.wait(interval_ms / 1000.0):
                     raise ScriptInterrupted()
 
+    def mouse_move(self, x: int, y: int, duration_ms: int = 0) -> None:
+        """相对移动鼠标；正 X 向右、正 Y 向下，时长不受 SPEED 缩放。"""
+        self._validate_mouse_move_axis(x, "x")
+        self._validate_mouse_move_axis(y, "y")
+        if (
+            isinstance(duration_ms, bool)
+            or not isinstance(duration_ms, int)
+            or not 0 <= duration_ms <= self._MOUSE_MOVE_DURATION_LIMIT_MS
+        ):
+            raise ValueError("duration_ms 必须是 0 到 10000 的整数")
+        self._raise_if_stopped()
+        if x == 0 and y == 0:
+            return
+        if duration_ms == 0:
+            self._mouse_move(x, y)
+            return
+
+        steps = min(
+            duration_ms,
+            (duration_ms + self._MOUSE_MOVE_STEP_MS - 1) // self._MOUSE_MOVE_STEP_MS,
+        )
+        interval_seconds = duration_ms / steps / 1000.0
+        previous_x = 0
+        previous_y = 0
+        for step in range(1, steps + 1):
+            if self._stop_event.wait(interval_seconds):
+                raise ScriptInterrupted()
+            current_x = self._scaled_integer_step(x, step, steps)
+            current_y = self._scaled_integer_step(y, step, steps)
+            delta_x = current_x - previous_x
+            delta_y = current_y - previous_y
+            if delta_x or delta_y:
+                self._mouse_move(delta_x, delta_y)
+            previous_x = current_x
+            previous_y = current_y
+
     def release_held_mouse_buttons(self) -> None:
         """执行轮次清理：释放本播放器仍持有的鼠标键。"""
         for button in tuple(self._held_mouse_buttons):
@@ -169,6 +211,20 @@ class ScriptPlayer:
     def _validate_positive_int(value: int, name: str) -> None:
         if isinstance(value, bool) or not isinstance(value, int) or value < 1:
             raise ValueError(f"{name} 必须是大于 0 的整数")
+
+    @classmethod
+    def _validate_mouse_move_axis(cls, value: int, name: str) -> None:
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or not -cls._MOUSE_MOVE_LIMIT <= value <= cls._MOUSE_MOVE_LIMIT
+        ):
+            raise ValueError(f"{name} 必须是 -10000 到 10000 的整数")
+
+    @staticmethod
+    def _scaled_integer_step(total: int, step: int, steps: int) -> int:
+        magnitude = abs(total) * step // steps
+        return magnitude if total >= 0 else -magnitude
 
     def _raise_if_stopped(self) -> None:
         if self._stop_event.is_set():

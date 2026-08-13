@@ -1,6 +1,6 @@
 """由“13EQFR左键.json”只读等价转换。"""
 
-NAME = "13EQFR左键"      # 宏库中显示的脚本名称
+NAME = '13EQFR左键'      # 宏库中显示的脚本名称
 HOTKEY = 'mouse_forward'  # 物理触发键：鼠标侧键 2
 MODE = 'down'             # 按住侧键运行，松开后请求停止
 COUNT = 0                 # 0 表示持续重复 run，直到松开或手动停止

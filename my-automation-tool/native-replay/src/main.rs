@@ -99,6 +99,7 @@ struct AudioMonitorOptions {
     work_directory: PathBuf,
     audio_levels: PathBuf,
     audio_info: PathBuf,
+    record_microphone: bool,
     microphone_device_id: Option<String>,
     microphone_gain_percent: u32,
     desktop_gain_percent: u32,
@@ -625,7 +626,7 @@ fn run_audio_monitor(options: AudioMonitorOptions) -> Result<(), AnyError> {
         manifest: options.work_directory.join("unused-audio-segments.jsonl"),
         levels_file: options.audio_levels.clone(),
         max_segments: 2,
-        microphone_enabled: true,
+        microphone_enabled: options.record_microphone,
         microphone_device_id: options.microphone_device_id,
         microphone_gain_percent: options.microphone_gain_percent,
         desktop_gain_percent: options.desktop_gain_percent,
@@ -1003,6 +1004,7 @@ fn parse_command() -> Result<Command, AnyError> {
         let mut work_directory = None;
         let mut audio_levels = None;
         let mut audio_info = None;
+        let mut record_microphone = false;
         let mut microphone_device_id = None;
         let mut microphone_gain_percent = 100_u32;
         let mut desktop_gain_percent = 150_u32;
@@ -1023,6 +1025,7 @@ fn parse_command() -> Result<Command, AnyError> {
                 "--work-directory" => work_directory = Some(PathBuf::from(value)),
                 "--audio-levels" => audio_levels = Some(PathBuf::from(value)),
                 "--audio-info" => audio_info = Some(PathBuf::from(value)),
+                "--record-microphone" => record_microphone = value.parse()?,
                 "--microphone-device-id" => {
                     if !value.is_empty() {
                         microphone_device_id = Some(value.to_owned());
@@ -1039,6 +1042,7 @@ fn parse_command() -> Result<Command, AnyError> {
             audio_levels: audio_levels.unwrap_or_else(|| work_directory.join("audio-levels.json")),
             audio_info: audio_info.unwrap_or_else(|| work_directory.join("audio-info.json")),
             work_directory,
+            record_microphone,
             microphone_device_id,
             microphone_gain_percent: microphone_gain_percent.min(200),
             desktop_gain_percent: desktop_gain_percent.min(300),

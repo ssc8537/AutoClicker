@@ -1,5 +1,5 @@
-NAME = "(一)千咲合轴卡提"   # 宏库中显示的脚本名称
-HOTKEY = 'mouse_back'             # 物理触发键：鼠标侧键 1
+NAME = "（一）剑切轴"  # 宏库中显示的脚本名称
+HOTKEY = 'backslash'             # 物理触发键：鼠标侧键 1
 MODE = 'down'                # 按住侧键运行，松开后立即请求停止
 COUNT = 1                     # 每次触发只执行一轮 run(player)
 SPEED = 1.0                   # 等待速度倍率
@@ -30,35 +30,37 @@ def _闪避(player, 按住毫秒, 等待毫秒=0):
         player.sleep(等待毫秒)
 
 def run(player):
-    # 千咲强E 卡提声骸A23 千咲锯A23 卡提A4 千咲锯终结 变奏卡提
+    # 千咲EA 大卡A34举剑 千咲A出剪刀 大卡A5劈下 R变小卡一直平A
+    # 手动操作-小卡A一套 Z重 下落 R切大卡A到开大
     # 角色映射：1=卡提、2=夏空、3=千咲
 
-    # 千咲强E
-    for _ in range(4):
-        _动作(player, "战技", 26, 60)
+    # 夏空A
+    _动作(player, "角色 2", 33, 100)
+    for _ in range(5):
+        _平A(player, 37, 140)
 
-    # 卡提声骸A23
-    _动作(player, "角色 1", 33, 20)
-    _动作(player, "声骸", 20, 0)
+    # 千咲EA
+    _动作(player, "角色 3", 37, 20)
+    _动作(player, "战技", 34, 30)
     for _ in range(4):
         _平A(player, 37, 180)
 
-    # 千咲锯A23
-    _动作(player, "角色 3", 37, 20)
-    for _ in range(4):
-        _平A(player, 37, 210)
-
-    # 卡提A4
+    # 大卡A34举剑
     _动作(player, "角色 1", 33, 20)
     for _ in range(4):
-        _平A(player, 37, 60)
+        _平A(player, 37, 220)
 
-    # 千咲终结
-    for _ in range(6):
-        _动作(player, "角色 3", 37, 70)
+    # 千咲A出剪刀
+    _动作(player, "角色 3", 37, 20)
     for _ in range(4):
-        _平A(player, 37, 80)
+        _平A(player, 37, 200)
 
-    # 延卡
-    for _ in range(16):
-        _动作(player, "角色 1", 33, 120)
+    # 大卡A5劈下
+    _动作(player, "角色 1", 33, 20)
+    for _ in range(4):
+        _平A(player, 37, 40)
+
+    # R变小卡一直平A
+    _动作(player, "大招", 33, 20)
+    for _ in range(10):
+        _平A(player, 37, 200)

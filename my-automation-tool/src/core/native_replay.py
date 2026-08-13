@@ -886,7 +886,9 @@ class NativeAudioPreviewController:
     def last_error(self) -> str | None:
         return self._last_error
 
-    def start(self, settings: ReplaySettings) -> None:
+    def start(
+        self, settings: ReplaySettings, *, microphone_enabled: bool = False,
+    ) -> None:
         self.stop()
         executable = native_replay_executable(settings.core_path)
         if executable is None:
@@ -903,6 +905,7 @@ class NativeAudioPreviewController:
             "--work-directory", str(root / "work"),
             "--audio-levels", str(levels_file),
             "--audio-info", str(root / "audio-info.json"),
+            "--record-microphone", str(bool(microphone_enabled)).lower(),
             "--microphone-device-id", _wasapi_endpoint_id(settings.microphone_device_id),
             "--microphone-gain-percent", str(settings.microphone_gain_percent),
             "--desktop-gain-percent", str(settings.desktop_gain_percent),

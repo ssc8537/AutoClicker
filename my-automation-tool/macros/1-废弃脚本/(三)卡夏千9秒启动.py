@@ -49,7 +49,7 @@ def run(player):
     player.sleep(20)
     _动作(player, "战技", 26, 30)
     for _ in range(3):
-        _平A(player, 31, 60)
+        _平A(player, 31, 50)
 
     # 卡提 跳 + E 声骸
     _动作(player, "角色 1", 33, 30)
@@ -64,10 +64,11 @@ def run(player):
     _动作(player, "声骸", 20, 0)
     _动作(player, "跳跃", 41, 93)
     for _ in range(2):
-        _平A(player, 37, 100)
+        _平A(player, 37, 90)
 
-    # 千咲 A4 跳 A。
-    _动作(player, "角色 3", 37, 20)
+    # 千咲 A4剪刀 跳 A。
+    for _ in range(2):
+        _动作(player, "角色 3", 37, 20) 
     for _ in range(4):
         _平A(player, 37, 220)
     _动作(player, "跳跃", 41, 33)
@@ -91,7 +92,7 @@ def run(player):
     # 上面可作为阶段一
     # 千咲强化E
     for _ in range(3):
-        _动作(player, "战技", 20, 50)
+        _动作(player, "战技", 20, 80)
 
     # 夏空A4 跳 Z重击
     _动作(player, "角色 2", 33, 100)

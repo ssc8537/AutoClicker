@@ -1,9 +1,9 @@
 NAME = "（一）剑切轴"  # 宏库中显示的脚本名称
-HOTKEY = 'backslash'             # 物理触发键：鼠标侧键 1
+HOTKEY = 'backslash'
 MODE = 'down'                # 按住侧键运行，松开后立即请求停止
 COUNT = 1                     # 每次触发只执行一轮 run(player)
 SPEED = 1.0                   # 等待速度倍率
-ENABLED = True               # 当前未启用
+ENABLED = False               # 当前未启用
 
 def _动作(player, 动作名称, 按住毫秒, 等待毫秒=0):
     """发送共享动作。"""

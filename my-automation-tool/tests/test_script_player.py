@@ -43,6 +43,50 @@ class ScriptPlayerTests(unittest.TestCase):
         # 该回归只验证调用能在合理时间内返回，精确倍率由停止可中断测试覆盖。
         self.assertLess(time.monotonic() - start, 0.15)
 
+    def test_mouse_move_immediate_supports_axes_and_zero_without_send(self):
+        events = []
+        player = ScriptPlayer(
+            threading.Event(), 8.0,
+            mouse_move=lambda x, y: events.append((x, y)),
+        )
+        player.mouse_move(12, -7)
+        player.mouse_move(0, 0)
+        self.assertEqual(events, [(12, -7)])
+
+    def test_mouse_move_smooth_steps_sum_exactly_and_ignores_speed(self):
+        events = []
+        player = ScriptPlayer(
+            threading.Event(), 8.0,
+            mouse_move=lambda x, y: events.append((x, y)),
+        )
+        player.mouse_move(-7, 11, duration_ms=35)
+        self.assertEqual(sum(x for x, _ in events), -7)
+        self.assertEqual(sum(y for _, y in events), 11)
+        self.assertGreaterEqual(len(events), 3)
+
+    def test_mouse_move_smooth_stop_does_not_send_remaining_steps(self):
+        events = []
+        stop_event = threading.Event()
+
+        def move(x, y):
+            events.append((x, y))
+            stop_event.set()
+
+        player = ScriptPlayer(stop_event, 1.0, mouse_move=move)
+        with self.assertRaises(ScriptInterrupted):
+            player.mouse_move(100, 0, duration_ms=100)
+        self.assertEqual(len(events), 1)
+        self.assertLess(sum(x for x, _ in events), 100)
+
+    def test_mouse_move_rejects_non_integer_and_out_of_range_values(self):
+        player = ScriptPlayer(threading.Event(), 1.0, mouse_move=lambda _x, _y: None)
+        for args in ((True, 0), (1.5, 0), (10001, 0), (0, -10001)):
+            with self.assertRaises(ValueError):
+                player.mouse_move(*args)
+        for duration in (True, -1, 10001, 1.5):
+            with self.assertRaises(ValueError):
+                player.mouse_move(1, 0, duration)
+
     def test_chinese_semantic_methods_use_configured_physical_keys(self):
         events = []
         keybinds = GameKeybinds({

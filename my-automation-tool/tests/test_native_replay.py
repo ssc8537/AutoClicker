@@ -60,6 +60,9 @@ class NativeReplayControllerTests(unittest.TestCase):
                 self.assertIn("--audio-monitor", command)
                 self.assertEqual(command[command.index("--audio-monitor") + 1], "true")
                 self.assertEqual(
+                    command[command.index("--record-microphone") + 1], "false"
+                )
+                self.assertEqual(
                     command[command.index("--microphone-device-id") + 1],
                     "selected-device",
                 )
@@ -71,6 +74,25 @@ class NativeReplayControllerTests(unittest.TestCase):
                 self.assertEqual(preview.stop(), 0)
                 self.assertTrue(stop_file is not None)
                 process.wait.assert_called_once()
+
+    def test_audio_preview_only_opens_microphone_when_explicitly_enabled(self):
+        with tempfile.TemporaryDirectory() as directory:
+            executable = Path(directory) / "recorder.exe"
+            executable.touch()
+            process = Mock()
+            process.poll.return_value = None
+            process.wait.return_value = 0
+            settings = ReplaySettings(Path(directory) / "captures", core_path=executable)
+            with patch(
+                "src.core.native_replay.subprocess.Popen", return_value=process
+            ) as popen:
+                preview = NativeAudioPreviewController()
+                preview.start(settings, microphone_enabled=True)
+                command = popen.call_args.args[0]
+                self.assertEqual(
+                    command[command.index("--record-microphone") + 1], "true"
+                )
+                preview.stop()
 
     def test_session_folder_name_validation(self):
         self.assertEqual(normalise_replay_session_name(" 秧秧完美连招 "), "秧秧完美连招")

@@ -74,7 +74,7 @@ class AiPromptV2Tests(unittest.TestCase):
                 "player.tap(", "player.sleep(", "player.切换(", "player.战技(",
                 "player.声骸(", "player.大招(", "player.跳跃(", "player.处决(",
                 "player.按键(", "player.mouse_click(", "player.mouse_down(",
-                "player.mouse_up(", "player.mouse_repeat(",
+                "player.mouse_up(", "player.mouse_repeat(", "player.mouse_move(",
             ):
                 self.assertIn(call, prompt)
             for metadata in ("NAME", "HOTKEY", "MODE", "COUNT", "SPEED", "ENABLED"):
@@ -112,7 +112,7 @@ class AiPromptV2Tests(unittest.TestCase):
 
     def test_all_complete_examples_pass_current_static_validator(self):
         template = self.default_prompt.read_text(encoding="utf-8")
-        for label in ("A", "B", "C", "D"):
+        for label in ("A", "B", "C", "D", "E"):
             match = re.search(
                 rf"### 示例 {label}：[^\n]+\n\n```python\n(?P<source>.*?)\n```",
                 template,
@@ -128,6 +128,14 @@ class AiPromptV2Tests(unittest.TestCase):
     def test_shipped_current_and_default_templates_match(self):
         current = self.project_root / "config" / "ai_prompt.md"
         self.assertEqual(current.read_bytes(), self.default_prompt.read_bytes())
+
+    def test_relative_mouse_move_contract_is_explicit_and_safe(self):
+        prompt = self.default_prompt.read_text(encoding="utf-8")
+        self.assertIn("X 正数向右", prompt)
+        self.assertIn("Y 正数向下", prompt)
+        self.assertIn("不受 SPEED 缩放", prompt)
+        self.assertIn("绝对鼠标坐标", prompt)
+        self.assertIn("鼠标轨迹录制/回放", prompt)
 
     def test_legacy_txt_is_migrated_without_deleting_user_file(self):
         with tempfile.TemporaryDirectory() as directory:

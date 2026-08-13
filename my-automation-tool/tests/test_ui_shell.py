@@ -458,6 +458,9 @@ class UiShellTests(unittest.TestCase):
         configure_key_monitor = self.window.findChild(QPushButton, "configure_key_monitor_button")
         encoder_mode = self.window.findChild(QComboBox, "replay_encoder_mode_selector")
         microphone = self.window.findChild(QCheckBox, "record_microphone_checkbox")
+        microphone_preview = self.window.findChild(
+            QCheckBox, "microphone_preview_checkbox"
+        )
         desktop_gain = self.window.findChild(QSlider, "desktop_gain_slider")
         desktop_gain_value = self.window.findChild(QLabel, "desktop_gain_value")
         microphone_name = self.window.findChild(QLineEdit, "microphone_device_name")
@@ -469,6 +472,8 @@ class UiShellTests(unittest.TestCase):
         self.assertEqual(quality.currentData(), "1080p")
         self.assertEqual(encoder_mode.currentData(), "gpu")
         self.assertFalse(microphone.isChecked())
+        self.assertFalse(microphone_preview.isChecked())
+        self.assertIn("关闭", microphone_preview.text())
         self.assertEqual((desktop_gain.minimum(), desktop_gain.maximum()), (0, 300))
         self.assertEqual(desktop_gain.value(), 150)
         self.assertEqual(desktop_gain_value.text(), "150%")
@@ -824,6 +829,7 @@ class UiShellTests(unittest.TestCase):
         preview.audio_levels.return_value = (37, 58)
         self.window._native_replay_controller = replay
         self.window._audio_preview_controller = preview
+        self.window.findChild(QCheckBox, "microphone_preview_checkbox").setChecked(True)
         self.window._update_replay_live_status()
         desktop = self.window.findChild(QProgressBar, "desktop_audio_meter")
         microphone = self.window.findChild(QProgressBar, "microphone_audio_meter")
@@ -833,6 +839,26 @@ class UiShellTests(unittest.TestCase):
         self.assertIn("不保存", desktop.text())
         self.assertIn("设备预检", microphone.text())
         self.assertIn("当前不保存", microphone.text())
+
+    def test_microphone_preview_defaults_off_and_restarts_without_microphone(self):
+        preview = Mock()
+        self.window._audio_preview_controller = preview
+        checkbox = self.window.findChild(QCheckBox, "microphone_preview_checkbox")
+        meter = self.window.findChild(QProgressBar, "microphone_audio_meter")
+        self.assertFalse(checkbox.isChecked())
+        self.assertIn("关闭", meter.text())
+
+        with patch.object(self.window, "_schedule_audio_preview_restart") as restart:
+            checkbox.setChecked(True)
+            restart.assert_called_once_with()
+        self.assertIn("开启", checkbox.text())
+
+        with patch.object(self.window, "_schedule_audio_preview_restart") as restart:
+            checkbox.setChecked(False)
+            preview.stop.assert_called()
+            restart.assert_called_once_with()
+        self.assertEqual(meter.value(), 0)
+        self.assertIn("关闭", meter.text())
 
     def test_stopping_replay_does_not_prompt_or_save(self):
         controller = Mock()
@@ -1170,7 +1196,7 @@ class UiShellTests(unittest.TestCase):
                 self.assertIn(f"player.{method}", general_prompt)
             self.assertIn("| `HOTKEY` |", general_prompt)
             self.assertIn('player.按键("当前动作名称"', general_prompt)
-            for method in ("mouse_click", "mouse_down", "mouse_up", "mouse_repeat"):
+            for method in ("mouse_click", "mouse_down", "mouse_up", "mouse_repeat", "mouse_move"):
                 self.assertIn(f"player.{method}", general_prompt)
             for name in ("mouse_left", "mouse_right", "mouse_middle", "mouse_back", "mouse_forward"):
                 self.assertIn(name, general_prompt)

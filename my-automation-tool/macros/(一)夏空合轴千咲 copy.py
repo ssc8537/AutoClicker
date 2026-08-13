@@ -3,7 +3,7 @@ HOTKEY = 'mouse_forward'          # 物理触发键：鼠标侧键 2
 MODE = 'down'                # 按住侧键运行，松开后立即请求停止
 COUNT = 1                     # 每次触发只执行一轮 run(player)
 SPEED = 1.0                   # 等待速度倍率
-ENABLED = True               # 当前未启用
+ENABLED = False               # 当前未启用
 
 def _动作(player, 动作名称, 按住毫秒, 等待毫秒=0):
     """发送共享动作。"""
@@ -34,7 +34,7 @@ def run(player):
     # 手动操作---战技Z重开大
     # 角色映射：1=卡提、2=夏空、3=千咲
 
-    # 夏空跳 声骸 A
+    # 夏空跳 声骸 A 
     _动作(player, "跳跃", 33, 30)
     for _ in range(2):
         _动作(player, "声骸", 36, 0)

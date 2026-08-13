@@ -1326,11 +1326,21 @@ class MainWindow(QMainWindow):
         self._microphone_audio_meter.setObjectName("microphone_audio_meter")
         self._microphone_audio_meter.setRange(0, 100)
         self._microphone_audio_meter.setValue(0)
-        self._microphone_audio_meter.setFormat("正在启动设备预检")
+        self._microphone_audio_meter.setFormat("麦克风预检已关闭")
         audio_status_layout.addRow("桌面声音（音轨 1）", self._desktop_audio_meter)
         audio_status_layout.addRow("麦克风（音轨 2）", self._microphone_audio_meter)
+        self._microphone_preview_enabled = QCheckBox(
+            "麦克风预检：关闭（点击开启）"
+        )
+        self._microphone_preview_enabled.setObjectName("microphone_preview_checkbox")
+        self._microphone_preview_enabled.setChecked(False)
+        self._microphone_preview_enabled.setToolTip(
+            "默认关闭，不会打开麦克风；需要测试麦克风预检时再点击开启。"
+        )
+        audio_status_layout.addRow("麦克风预检开关", self._microphone_preview_enabled)
         audio_preview_note = QLabel(
-            "未录制时只检测桌面声和所选麦克风的真实音量，不保存声音；开始录像后才按上方设置写入音轨。"
+            "默认不打开麦克风。需要测试麦克风预检是否成功时，请打开上方开关；"
+            "录像时是否写入麦克风音轨，仍由上方“录制麦克风声音”单独决定。"
         )
         audio_preview_note.setObjectName("audio_preview_note")
         audio_preview_note.setWordWrap(True)
@@ -1457,6 +1467,9 @@ class MainWindow(QMainWindow):
         self._replay_fps.currentIndexChanged.connect(self._save_replay_settings)
         self._replay_encoder_mode.currentIndexChanged.connect(self._save_replay_settings)
         self._record_microphone.toggled.connect(self._save_replay_settings)
+        self._microphone_preview_enabled.toggled.connect(
+            self._on_microphone_preview_toggled
+        )
         self._desktop_gain.valueChanged.connect(self._on_desktop_gain_changed)
         self._microphone_gain.valueChanged.connect(self._on_microphone_gain_changed)
         self._choose_microphone_device_button.clicked.connect(
@@ -1864,6 +1877,7 @@ class MainWindow(QMainWindow):
             self._replay_fps,
             self._replay_encoder_mode,
             self._record_microphone,
+            self._microphone_preview_enabled,
             self._desktop_gain,
             self._choose_microphone_device_button,
             self._microphone_gain,
@@ -1920,13 +1934,27 @@ class MainWindow(QMainWindow):
             return
         self._audio_preview_restart_timer.start()
 
+    def _on_microphone_preview_toggled(self, enabled: bool) -> None:
+        self._microphone_preview_enabled.setText(
+            "麦克风预检：开启（正在检测）" if enabled else "麦克风预检：关闭（点击开启）"
+        )
+        if not enabled:
+            self._audio_preview_restart_timer.stop()
+            self._audio_preview_controller.stop()
+            self._microphone_audio_meter.setValue(0)
+            self._microphone_audio_meter.setFormat("麦克风预检已关闭")
+        self._schedule_audio_preview_restart()
+
     def _start_audio_preview(self) -> None:
         if os.environ.get("MYAUTOPLAYER_DISABLE_AUDIO") == "1":
             return
         if self._native_replay_controller.running:
             return
         try:
-            self._audio_preview_controller.start(self._replay_settings)
+            self._audio_preview_controller.start(
+                self._replay_settings,
+                microphone_enabled=self._microphone_preview_enabled.isChecked(),
+            )
         except (OSError, RuntimeError, ValueError) as exc:
             self._audio_preview_error = str(exc)
         else:
@@ -1975,17 +2003,25 @@ class MainWindow(QMainWindow):
                 self._desktop_audio_meter.setFormat(
                     f"设备预检 · {desktop_level}% · 不保存"
                 )
-                self._microphone_audio_meter.setValue(microphone_level)
-                microphone_action = "录像时保存" if self._replay_settings.record_microphone else "当前不保存"
-                self._microphone_audio_meter.setFormat(
-                    f"设备预检 · {microphone_level}% · {microphone_action}"
-                )
+                if self._microphone_preview_enabled.isChecked():
+                    self._microphone_audio_meter.setValue(microphone_level)
+                    microphone_action = "录像时保存" if self._replay_settings.record_microphone else "当前不保存"
+                    self._microphone_audio_meter.setFormat(
+                        f"设备预检 · {microphone_level}% · {microphone_action}"
+                    )
+                else:
+                    self._microphone_audio_meter.setValue(0)
+                    self._microphone_audio_meter.setFormat("麦克风预检已关闭")
             else:
                 self._desktop_audio_meter.setValue(0)
                 self._microphone_audio_meter.setValue(0)
                 status = self._audio_preview_error or "正在启动设备预检"
                 self._desktop_audio_meter.setFormat(status)
-                self._microphone_audio_meter.setFormat(status)
+                self._microphone_audio_meter.setFormat(
+                    status
+                    if self._microphone_preview_enabled.isChecked()
+                    else "麦克风预检已关闭"
+                )
 
     def _choose_microphone_device(self) -> None:
         try:

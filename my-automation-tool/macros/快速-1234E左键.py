@@ -1,4 +1,4 @@
-NAME = '快速-1234EQF左键'          # 宏库中显示的脚本名称
+NAME = '快速-1234E左键'          # 宏库中显示的脚本名称
 HOTKEY = 'mouse_back'         # 物理触发键：鼠标侧键 1（可自行修改）
 MODE = 'down'                 # 按住侧键运行，松开后立即请求停止
 COUNT = 0                     # 每次触发只执行一轮 run(player)
@@ -36,11 +36,11 @@ def run(player):
     _点击(player, "4")
     # 第 5 步：点击字母键 E
     _点击(player, "e")
-    # 第 6 步：点击字母键 Q
-    _点击(player, "q")
-    # 第 7 步：点击字母键 F
-    _点击(player, "f")
-
+    # # 第 6 步：点击字母键 Q
+    # _点击(player, "q")
+    # # 第 7 步：点击字母键 F
+    # _点击(player, "f")
+    
     # 第 8 步：点击鼠标左键
     for _ in range(4):
         _点击(player, "mouse_left")

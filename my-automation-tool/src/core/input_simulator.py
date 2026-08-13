@@ -33,6 +33,7 @@ KEYEVENTF_KEYUP = 0x0002
 KEYEVENTF_UNICODE = 0x0004
 KEYEVENTF_SCANCODE = 0x0008
 
+MOUSEEVENTF_MOVE = 0x0001
 MOUSEEVENTF_LEFTDOWN = 0x0002
 MOUSEEVENTF_LEFTUP = 0x0004
 MOUSEEVENTF_RIGHTDOWN = 0x0008
@@ -123,7 +124,8 @@ def _send_input(*inputs: _INPUT) -> int:
                 )
             else:
                 event = (
-                    f"mouse data={first.union.mi.mouseData} "
+                    f"mouse dx={first.union.mi.dx} dy={first.union.mi.dy} "
+                    f"data={first.union.mi.mouseData} "
                     f"flags={first.union.mi.dwFlags}"
                 )
             try:
@@ -168,12 +170,14 @@ def _make_unicode_input(char: str, down: bool = True) -> _INPUT:
     return inp
 
 
-def _make_mouse_input(flags: int, data: int = 0) -> _INPUT:
+def _make_mouse_input(
+    flags: int, data: int = 0, *, dx: int = 0, dy: int = 0,
+) -> _INPUT:
     """构造鼠标 INPUT 结构。"""
     inp = _INPUT()
     inp.type = INPUT_MOUSE
-    inp.union.mi.dx = 0
-    inp.union.mi.dy = 0
+    inp.union.mi.dx = dx
+    inp.union.mi.dy = dy
     inp.union.mi.mouseData = data
     inp.union.mi.dwFlags = flags
     inp.union.mi.time = 0
@@ -269,6 +273,11 @@ def mouse_up(button: str = "left") -> None:
         raise ValueError(f"不支持的鼠标按钮: {button!r}")
     data = XBUTTON1 if button == "x1" else XBUTTON2 if button == "x2" else 0
     _send_input(_make_mouse_input(fl, data))
+
+
+def move_mouse_relative(dx: int, dy: int) -> None:
+    """按像素语义发送一次鼠标相对位移；正 X 向右，正 Y 向下。"""
+    _send_input(_make_mouse_input(MOUSEEVENTF_MOVE, dx=dx, dy=dy))
 
 
 def type_string(

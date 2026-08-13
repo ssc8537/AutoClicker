@@ -1,11 +1,11 @@
-NAME = '快速-1234EQF左键'          # 宏库中显示的脚本名称
+NAME = '1234EQF左键'          # 宏库中显示的脚本名称
 HOTKEY = 'mouse_back'         # 物理触发键：鼠标侧键 1（可自行修改）
 MODE = 'down'                 # 按住侧键运行，松开后立即请求停止
 COUNT = 0                     # 每次触发只执行一轮 run(player)
 SPEED = 1.0                   # 等待速度倍率
 ENABLED = False                # 当前启用
 
-def _点击(player, key, hold_ms=20, wait_ms=0):
+def _点击(player, key, hold_ms=20, wait_ms=10):
     """
     点击一个物理键或鼠标键，并在点击后等待指定毫秒。
 
@@ -40,7 +40,7 @@ def run(player):
     _点击(player, "q")
     # 第 7 步：点击字母键 F
     _点击(player, "f")
-
+    
     # 第 8 步：点击鼠标左键
-    for _ in range(4):
+    for _ in range(8):
         _点击(player, "mouse_left")

@@ -1,8 +1,8 @@
 """由“123全切+大招-今汐.json”只读等价转换。"""
 
 NAME = "123全切+大招-今汐"  # 宏库中显示的脚本名称
-HOTKEY = "mouse_back"       # 物理触发键：鼠标侧键 1
-MODE = "down"               # 按住侧键运行，松开后请求停止
+HOTKEY = 'mouse_back'       # 物理触发键：鼠标侧键 1
+MODE = 'down'               # 按住侧键运行，松开后请求停止
 COUNT = 0                   # 0 表示持续重复 run，直到松开或手动停止
 SPEED = 1.0                 # 等待速度倍率；只影响 player.sleep()
 ENABLED = False             # False 表示当前默认不启用此宏
