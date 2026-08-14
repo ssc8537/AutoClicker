@@ -14,6 +14,7 @@ from src.core.input_simulator import (
 )
 from src.core.input_keys import MOUSE_BUTTON_FOR_HOTKEY, MOUSE_HOTKEYS, normalise_input_key
 from src.core.game_keybinds import DEFAULT_GAME_KEYBINDS, GameKeybinds
+from src.core.physical_input_state import physical_input_state
 
 
 class ScriptInterrupted(Exception):
@@ -196,6 +197,13 @@ class ScriptPlayer:
                 self._mouse_move(delta_x, delta_y)
             previous_x = current_x
             previous_y = current_y
+
+    def is_physical_pressed(self, key: str) -> bool:
+        """只读查询真实物理键是否按住；本程序发送的 MAPL 输入不计入。"""
+        try:
+            return physical_input_state.is_pressed(key)
+        except ValueError as exc:
+            raise ValueError(f"不支持的物理按键: {key!r}") from exc
 
     def release_held_mouse_buttons(self) -> None:
         """执行轮次清理：释放本播放器仍持有的鼠标键。"""

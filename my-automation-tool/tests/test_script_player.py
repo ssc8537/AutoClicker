@@ -4,9 +4,13 @@ import unittest
 
 from src.core.game_keybinds import GameKeybinds
 from src.core.script_player import ScriptInterrupted, ScriptPlayer
+from src.core.physical_input_state import physical_input_state
 
 
 class ScriptPlayerTests(unittest.TestCase):
+    def tearDown(self):
+        physical_input_state.clear()
+
     def test_tap_sends_physical_down_and_up(self):
         events = []
         player = ScriptPlayer(
@@ -86,6 +90,16 @@ class ScriptPlayerTests(unittest.TestCase):
         for duration in (True, -1, 10001, 1.5):
             with self.assertRaises(ValueError):
                 player.mouse_move(1, 0, duration)
+
+    def test_physical_pressed_is_read_only_and_uses_project_key_names(self):
+        player = ScriptPlayer(threading.Event(), 1.0)
+        self.assertFalse(player.is_physical_pressed("mouse_left"))
+        physical_input_state.update("mouse_left", True)
+        self.assertTrue(player.is_physical_pressed("mouse_left"))
+        physical_input_state.update("mouse_left", False)
+        self.assertFalse(player.is_physical_pressed("mouse_left"))
+        with self.assertRaises(ValueError):
+            player.is_physical_pressed("not-a-real-key")
 
     def test_chinese_semantic_methods_use_configured_physical_keys(self):
         events = []

@@ -1,6 +1,14 @@
-# 当前交接：Stage 20 鼠标 X/Y 相对移动与固定压枪宏已验收归档
+# 当前交接：Stage 21 完美压枪物理左键联动已验收
 
 ## 当前状态
+
+2026-08-14 用户确认 Stage 21 全部验收通过。项目新增只读 `player.is_physical_pressed(key)`：它读取 Windows 全局钩子确认的真实物理 down/up，程序自身带 `MAPL` 标记的模拟输入不会写入该状态。`macros/z-完美压枪宏.py` 保持 `HOTKEY='backslash'`，使用 `MODE='switch'`、`COUNT=0`：按一次反斜杠开启监听；物理左键未按时低频等待，按住时执行压枪，松开后停止移动并继续等待；再按一次反斜杠完全停止。
+
+压枪算法没有改成新曲线。自动对比确认当前宏与 `macros/z-完美压枪宏-初版.py` 的九组参数完全一致：500/800/800ms 三阶段、左右随机、向下随机、下压随机2、间隔随机(-2/0/2)、每8步点射重置、100ms、重置随机10ms、扇形基准4.0。点射等待期间若物理左键已经松开，不会再次模拟按下。这里的“8”是八次下压步骤，不是读取游戏弹药后的真实八发；项目仍不读取游戏内存、武器或弹药状态。
+
+完整自动测试为217项通过、7项环境跳过；标准 `dist/MyAutoPlayer/MyAutoPlayer.exe` 已重建，包内宏与源码SHA-256一致。用户授权将当前完整节点普通推送到GitHub默认主干`master`，禁止强推。
+
+## Stage 20 归档状态（历史）
 
 Stage 20 已完成源码、自动测试、文档同步、正式便携 EXE 构建和 Windows 11 人工验收。最终公开 API 为 `player.mouse_move(x, y, duration_ms=0)`：x/y 是相对当前光标的整数位移（X 正数向右、Y 正数向下），范围 -10000–10000；duration_ms 为 0–10000，0 表示一次发送，大于 0 表示约 10ms 分步平滑移动，真实移动时长不受 SPEED 缩放。停止、down 松开、switch 再按、全局禁用和退出都会阻止后续步骤。
 
@@ -12,13 +20,13 @@ Stage 20 已完成源码、自动测试、文档同步、正式便携 EXE 构建
 
 用户已明确确认Stage 19D历史录像浏览、按键记录窗单行临时输入框以及此前全部功能验收通过。2026-07-23 用户再次明确授权把当前完整节点发布到GitHub默认主干`master`；发布使用普通提交，禁止强推。最终准确SHA直接读取`git log -1`或远端`refs/heads/master`，上一归档回退点仍为`a9029a8`。
 
-当前文档只保留各自职责明确的入口：根`PRODUCT_REQUIREMENTS.md`保存当前真实需求，`PROJECT_ROADMAP.md`保存阶段状态，`README.md`与`SETUP_GUIDE.md`面向下载者，本文面向下一位AI，`native-replay/BUILDING.md`与`THIRD_PARTY_NOTICES.md`保存可复现构建和许可。`CURRENT_ACCEPTANCE.md`暂时保留本次已通过的临时输入框验收范围与明确未实现项，后续再次归档时可移除并从Git历史恢复。
+当前文档只保留各自职责明确的入口：根`PRODUCT_REQUIREMENTS.md`保存当前真实需求，`PROJECT_ROADMAP.md`保存阶段状态，`README.md`与`SETUP_GUIDE.md`面向下载者，本文面向下一位AI，`native-replay/BUILDING.md`与`THIRD_PARTY_NOTICES.md`保存可复现构建和许可。`CURRENT_ACCEPTANCE.md`保存本次已通过的完美压枪物理左键联动教程。
 
 2026-07-23用户实际使用后报告五项问题。本轮已实现：临时框聚焦时仅抑制宏触发/全局切换/OSD并继续保留录像旁路日志；最小化按键窗再次点击按钮会`showNormal()`恢复；桌面音轨新增0–300%增益并贯穿预检、正式录制和元数据；顶部时钟使用详情字号约2倍；30分钟导出改用单个UTF-8合并清单，不再把约180组视频/音频绝对路径放入Windows命令行。用户已确认验收教程全部通过，并授权把当前完整节点普通提交、推送到GitHub默认主干`master`。
 
 当前没有自动开始的下一阶段。未来AI只在用户提出新的明确范围后继续，不得自行扩展产品。
 
-本轮新增修改：`src/core/input_simulator.py` 的相对 `SendInput` 构造与 `MAPL` 标记；`src/core/script_player.py` 的严格校验、立即/平滑可中断 `mouse_move`；AI 提示词两份模板、`PRODUCT_REQUIREMENTS.md`、`README.md`、`PROJECT_ROADMAP.md` 和 Stage 20 验收文档。用户本轮明确指定续写 `macros/z-自动压枪宏.py`；归档发布时保留宏目录当前的新增、修改、改名、分组和删除状态，不恢复旧文件名或旧内容，也不上传重复压缩备份。
+本轮新增修改：`src/core/physical_input_state.py` 保存经钩子过滤后的真实物理状态；`src/core/hotkey_manager.py` 更新并在停止时清空状态；`src/core/script_player.py` 公开只读查询；AI提示词、需求、路线图、测试和验收文档同步更新。归档发布时保留宏目录当前的新增、修改、改名、分组和删除状态，不恢复旧文件名或旧内容，也不上传重复压缩备份。
 
 按键记录窗底部的一次性单行临时输入框已由用户确认全部验收通过，并已重新生成`dist/MyAutoPlayer/`文件夹式便携包；用户将实际使用5–6小时后再反馈。用户另行提出“点击外部视频后仍把键盘输入送入临时框且不触发播放器快捷键”，但明确要求当前只记录、不实现；必须等用户再次授权后再处理焦点或受控输入逻辑。
 

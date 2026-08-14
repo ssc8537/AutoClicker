@@ -14,6 +14,7 @@ from pynput import keyboard, mouse
 
 from src.core.input_keys import MOUSE_HOTKEYS, input_key_from_windows_vk, normalise_input_key
 from src.core.input_simulator import INPUT_EVENT_MARKER
+from src.core.physical_input_state import physical_input_state
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -234,6 +235,7 @@ class HotkeyManager:
             if self._listening:
                 return
             self._listening = True
+        physical_input_state.clear()
         self._event_thread = threading.Thread(
             target=self._event_loop, daemon=True, name="hotkey-events"
         )
@@ -263,6 +265,7 @@ class HotkeyManager:
             self._pressed_hotkeys.clear()
             self._queued_physical_state.clear()
             self._global_disable_key_pressed = False
+        physical_input_state.clear()
         keyboard_listener = self._keyboard_listener
         self._keyboard_listener = None
         if keyboard_listener is not None:
@@ -378,6 +381,9 @@ class HotkeyManager:
                 self._queued_physical_state[hotkey] = pressed
             epoch = self._config_epoch
         if listening:
+            # 这里只接收已由低级 hook 排除 MAPL 标记后的真实物理边沿。
+            # 宏可读取该状态，但不能伪造或改写它。
+            physical_input_state.update(hotkey, pressed)
             try:
                 self._event_queue.put_nowait((hotkey, pressed, epoch))
             except queue.Full:

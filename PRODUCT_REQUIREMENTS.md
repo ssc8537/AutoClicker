@@ -64,6 +64,7 @@ def run(player):
 - `player.mouse_down(button)`、`player.mouse_up(button)`
 - `player.mouse_repeat(count, button, interval_ms=10)`
 - `player.mouse_move(x, y, duration_ms=0)`：相对当前位置移动；X 正数向右，Y 正数向下；`x/y` 为 -10000–10000 整数，`duration_ms` 为 0–10000 整数且不受 `SPEED` 缩放。
+- `player.is_physical_pressed(key)`：只读查询真实物理键是否仍按住；支持项目标准键值，本程序带 `MAPL` 标记的模拟输入不计入。
 
 用户确认的语义：角色 1 默认物理键为 `1`；固定中文函数按槽位工作。动作改名后，可用 `player.按键("改后的名称")`。正确函数名是 `player.战技()`，不是“战绩”。
 

@@ -75,6 +75,7 @@ class AiPromptV2Tests(unittest.TestCase):
                 "player.声骸(", "player.大招(", "player.跳跃(", "player.处决(",
                 "player.按键(", "player.mouse_click(", "player.mouse_down(",
                 "player.mouse_up(", "player.mouse_repeat(", "player.mouse_move(",
+                "player.is_physical_pressed(",
             ):
                 self.assertIn(call, prompt)
             for metadata in ("NAME", "HOTKEY", "MODE", "COUNT", "SPEED", "ENABLED"):

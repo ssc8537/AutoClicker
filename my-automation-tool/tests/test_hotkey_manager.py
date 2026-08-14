@@ -4,9 +4,24 @@ from unittest.mock import patch
 
 from src.core.hotkey_manager import HotkeyManager, PhysicalInputEvent, TriggerMode
 from src.core.input_simulator import INPUT_EVENT_MARKER
+from src.core.physical_input_state import physical_input_state
 
 
 class HotkeyManagerTests(unittest.TestCase):
+    def tearDown(self):
+        physical_input_state.clear()
+
+    def test_physical_queue_updates_shared_state_and_stop_clears_it(self):
+        manager = HotkeyManager()
+        manager._listening = True
+        manager._queue_physical_event("mouse_left", True)
+        self.assertTrue(physical_input_state.is_pressed("mouse_left"))
+        manager._queue_physical_event("mouse_left", False)
+        self.assertFalse(physical_input_state.is_pressed("mouse_left"))
+        physical_input_state.update("mouse_left", True)
+        manager.stop()
+        self.assertFalse(physical_input_state.is_pressed("mouse_left"))
+
     def test_global_automation_is_enabled_by_default(self):
         manager = HotkeyManager()
         self.assertFalse(manager.global_disabled)
@@ -315,12 +330,14 @@ class HotkeyManagerTests(unittest.TestCase):
 
     def test_physical_observer_never_receives_mapl_input(self):
         manager = HotkeyManager()
+        manager._listening = True
         observed = []
         manager.add_physical_observer(observed.append)
         manager._on_windows_keyboard_event(
             0x0100, SimpleNamespace(vkCode=69, dwExtraInfo=INPUT_EVENT_MARKER)
         )
         self.assertEqual(observed, [])
+        self.assertFalse(physical_input_state.is_pressed("e"))
 
 if __name__ == "__main__":
     unittest.main()
