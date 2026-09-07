@@ -249,6 +249,7 @@ class MacroLibraryPanel(QWidget):
         count: int,
         speed: float,
         enabled: bool,
+        wheel: bool = False,
     ) -> None:
         """触发页的每一次有效编辑均即时原子保存并刷新。"""
         self._manager.update_trigger_settings(
@@ -258,6 +259,7 @@ class MacroLibraryPanel(QWidget):
             count=count,
             speed=speed,
             enabled=enabled,
+            wheel=wheel,
         )
         self._refresh_and_select(path)
 

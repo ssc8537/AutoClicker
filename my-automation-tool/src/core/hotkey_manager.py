@@ -438,6 +438,9 @@ class HotkeyManager:
         """读取原始 Windows 鼠标 down/up；只排除本程序自身 SendInput。"""
         if self._windows_extra_info(data) == INPUT_EVENT_MARKER:
             return True
+        if int(message) == 0x020A:  # WM_MOUSEWHEEL
+            self._on_windows_wheel(data)
+            return True
         edges = {
             0x0201: ("mouse_left", True),
             0x0202: ("mouse_left", False),
@@ -455,6 +458,19 @@ class HotkeyManager:
             self._notify_physical_observers(edge[0], edge[1], None)
             self._queue_physical_event(*edge)
         return True
+
+    def _on_windows_wheel(self, data) -> None:
+        """优秀案例 1 ihook.h 的滚轮契约：满一格（±120）发一次 down+up 脉冲。
+
+        上滑与下滑都触发同一个 "wheel" 绑定；不满一格的高精度增量与案例一致忽略。
+        """
+        delta = ctypes.c_short((int(getattr(data, "mouseData", 0)) >> 16) & 0xFFFF).value
+        if abs(delta) < 120:
+            return
+        self._notify_physical_observers("wheel", True, None)
+        self._queue_physical_event("wheel", True)
+        self._notify_physical_observers("wheel", False, None)
+        self._queue_physical_event("wheel", False)
 
     @staticmethod
     def _windows_extra_info(data) -> int:

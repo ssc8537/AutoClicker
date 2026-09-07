@@ -42,6 +42,7 @@ Desktop.ini
 # 本地推送脚本（不推送到 GitHub）
 _push_to_github.bat
 _update_*.py
+my-automation-tool/macros/macros.zip
 my-automation-tool/.tooling/
 my-automation-tool/native-replay/.cargo/
 my-automation-tool/native-replay/target/

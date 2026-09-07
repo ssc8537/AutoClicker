@@ -29,7 +29,7 @@ class MacroFileManagerTests(unittest.TestCase):
             manager.update(path, "trigger", source)
             manager.update_trigger_settings(
                 path, hotkey="mouse_back", mode="switch", count=3,
-                speed=1.5, enabled=False,
+                speed=1.5, enabled=False, wheel=True,
             )
             saved = manager.read_source(path)
             self.assertIn("HOTKEY = 'mouse_back'", saved)
@@ -37,6 +37,7 @@ class MacroFileManagerTests(unittest.TestCase):
             self.assertIn("COUNT = 3", saved)
             self.assertIn("SPEED = 1.5", saved)
             self.assertIn("ENABLED = False", saved)
+            self.assertIn("WHEEL = True", saved)
             self.assertIn('player.tap("e")', saved)
     def setUp(self):
         self.temporary_directory = tempfile.TemporaryDirectory()
@@ -50,6 +51,7 @@ class MacroFileManagerTests(unittest.TestCase):
         target = self.manager.create("默认模板")
 
         self.assertIn('NAME = \'默认模板\'', target.read_text(encoding="utf-8"))
+        self.assertIn("WHEEL = False", target.read_text(encoding="utf-8"))
         self.assertTrue(scan_macro_root(self.root)[0].valid)
 
     def test_create_custom_source_is_static_and_scannable(self):

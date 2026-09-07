@@ -5,7 +5,7 @@ import ast
 from dataclasses import dataclass
 from pathlib import Path
 
-from src.core.input_keys import normalise_input_key
+from src.core.input_keys import WHEEL_HOTKEYS, normalise_input_key
 
 
 @dataclass(frozen=True)
@@ -18,6 +18,7 @@ class MacroMetadata:
     count: int
     speed: float
     enabled: bool
+    wheel: bool = False
 
 
 @dataclass(frozen=True)
@@ -70,7 +71,7 @@ def validate_macro_source(source: str, *, filename: str = "<Python 宏>") -> Mac
 
     values: dict[str, object] = {}
     run_nodes: list[ast.FunctionDef] = []
-    metadata_names = {"NAME", "HOTKEY", "MODE", "COUNT", "SPEED", "ENABLED"}
+    metadata_names = {"NAME", "HOTKEY", "MODE", "COUNT", "SPEED", "ENABLED", "WHEEL"}
     for node in module.body:
         if isinstance(node, ast.FunctionDef) and node.name == "run":
             run_nodes.append(node)
@@ -90,6 +91,7 @@ def validate_macro_source(source: str, *, filename: str = "<Python 宏>") -> Mac
     count = values.get("COUNT")
     speed = values.get("SPEED")
     enabled = values.get("ENABLED", True)
+    wheel = values.get("WHEEL", False)
     if not isinstance(name, str) or not name.strip():
         raise ValueError("NAME 必须是非空字符串")
     hotkey = normalize_macro_hotkey(hotkey)
@@ -101,16 +103,21 @@ def validate_macro_source(source: str, *, filename: str = "<Python 宏>") -> Mac
         raise ValueError("SPEED 必须是 0.01 至 8.0 的数字")
     if not isinstance(enabled, bool):
         raise ValueError("ENABLED 必须是 True 或 False")
+    if not isinstance(wheel, bool):
+        raise ValueError("WHEEL 必须是 True 或 False")
     _validate_run_signature(run_nodes)
-    return MacroMetadata(name, hotkey, mode, count, float(speed), enabled)
+    return MacroMetadata(name, hotkey, mode, count, float(speed), enabled, wheel)
 
 
 def normalize_macro_hotkey(value: object) -> str:
-    """校验 UI 捕获的一个标准键盘键或五个鼠标按钮。"""
+    """校验 UI 捕获的一个标准键盘键或五个鼠标按钮；滚轮由 WHEEL 字段控制。"""
     try:
-        return normalise_input_key(value)
+        key = normalise_input_key(value)
     except ValueError as exc:
         raise ValueError("HOTKEY 必须是单个标准键盘键或鼠标按钮") from exc
+    if key in WHEEL_HOTKEYS:
+        raise ValueError("滚轮滑动请使用 WHEEL 元数据，不是 HOTKEY")
+    return key
 
 
 def replace_trigger_metadata(
@@ -121,6 +128,7 @@ def replace_trigger_metadata(
     count: int,
     speed: float,
     enabled: bool,
+    wheel: bool = False,
     filename: str = "<Python 宏>",
 ) -> str:
     """原子保存前只替换触发元数据，不触碰用户的 run(player) 代码。"""
@@ -130,7 +138,10 @@ def replace_trigger_metadata(
         "COUNT": count,
         "SPEED": speed,
         "ENABLED": enabled,
+        "WHEEL": wheel,
     }
+    if not isinstance(wheel, bool):
+        raise ValueError("WHEEL 必须是 True 或 False")
     try:
         module = ast.parse(source, filename=filename)
     except SyntaxError as exc:
@@ -153,10 +164,15 @@ def replace_trigger_metadata(
             last_metadata_end = max(last_metadata_end, _source_offset(source, node.end_lineno, node.end_col_offset))
     if {"HOTKEY", "MODE", "COUNT", "SPEED"} - present:
         raise ValueError("宏缺少触发元数据")
-    if "ENABLED" not in present:
+    missing_optional = [
+        key for key in ("ENABLED", "WHEEL") if key not in present
+    ]
+    if missing_optional:
         # 先在原始偏移中插入，随后从后向前替换元数据。若先替换 SPEED=1
-        # 为 1.0，旧偏移会把 ENABLED 插进数值中，状态列首次点击就会保存失败。
-        insertion = f"\nENABLED = {metadata['ENABLED']!r}"
+        # 为 1.0，旧偏移会把 ENABLED/WHEEL 插进数值中，状态列首次点击就会保存失败。
+        insertion = "".join(
+            f"\n{key} = {metadata[key]!r}" for key in missing_optional
+        )
         source = f"{source[:last_metadata_end]}{insertion}{source[last_metadata_end:]}"
     for start, end, replacement in sorted(replacements, reverse=True):
         source = f"{source[:start]}{replacement}{source[end:]}"

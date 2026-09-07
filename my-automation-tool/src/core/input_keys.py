@@ -5,6 +5,9 @@ MOUSE_HOTKEYS = frozenset(
     {"mouse_left", "mouse_right", "mouse_middle", "mouse_back", "mouse_forward"}
 )
 
+# 滚轮滑动只作为宏触发方式存在；宏 HOTKEY 字段不接受它，见 normalize_macro_hotkey。
+WHEEL_HOTKEYS = frozenset({"wheel"})
+
 MOUSE_BUTTON_FOR_HOTKEY = {
     "mouse_left": "left",
     "mouse_right": "right",
@@ -103,7 +106,8 @@ INPUT_KEY_BY_WINDOWS_VK = {
 
 _DISPLAY_NAMES = {
     "mouse_left": "左键", "mouse_right": "右键", "mouse_middle": "中键",
-    "mouse_back": "侧键1", "mouse_forward": "侧键2", "space": "空格",
+    "mouse_back": "侧键1", "mouse_forward": "侧键2", "wheel": "滚轮",
+    "space": "空格",
     "esc": "Esc", "tab": "Tab", "backspace": "Back", "enter": "Enter",
     "page up": "PageUp", "page down": "PageDown", "left": "←", "up": "↑",
     "right": "→", "down": "↓", "delete": "Delete", "insert": "Insert",
@@ -124,7 +128,7 @@ def normalise_input_key(value: object) -> str:
         raise ValueError("按键必须是单个标准键盘键或鼠标按钮")
     key = value.strip().lower()
     key = _PUNCTUATION_ALIASES.get(key, _KEY_ALIASES.get(key, key))
-    if key in KEYBOARD_KEYS or key in MOUSE_HOTKEYS:
+    if key in KEYBOARD_KEYS or key in MOUSE_HOTKEYS or key in WHEEL_HOTKEYS:
         return key
     raise ValueError("不支持的按键；请选择一个标准键盘键或鼠标左/右/中/侧键")
 
@@ -151,6 +155,7 @@ def physical_input_name(value: str) -> str:
         "mouse_middle": "鼠标中键",
         "mouse_back": "侧键 1",
         "mouse_forward": "侧键 2",
+        "wheel": "滚轮",
     }
     if key in mouse_names:
         return mouse_names[key]

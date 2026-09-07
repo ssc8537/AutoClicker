@@ -184,6 +184,47 @@ class HotkeyManagerTests(unittest.TestCase):
         )
         self.assertEqual(queued, [("mouse_back", True), ("mouse_back", False)])
 
+    def test_raw_wheel_notch_queues_one_down_up_pulse_per_detent(self):
+        manager = HotkeyManager()
+        queued = []
+        manager._queue_physical_event = lambda key, pressed: queued.append((key, pressed))
+        wheel_up = SimpleNamespace(mouseData=120 << 16, dwExtraInfo=None)
+        wheel_down = SimpleNamespace(mouseData=(-120 & 0xFFFF) << 16, dwExtraInfo=None)
+        manager._on_windows_mouse_event(0x020A, wheel_up)
+        manager._on_windows_mouse_event(0x020A, wheel_down)
+        # 高精度滚轮不满一格与案例 1 一致忽略；本程序 MAPL 标记同样排除。
+        manager._on_windows_mouse_event(
+            0x020A, SimpleNamespace(mouseData=60 << 16, dwExtraInfo=None)
+        )
+        manager._on_windows_mouse_event(
+            0x020A, SimpleNamespace(mouseData=120 << 16, dwExtraInfo=INPUT_EVENT_MARKER)
+        )
+        self.assertEqual(
+            queued,
+            [("wheel", True), ("wheel", False), ("wheel", True), ("wheel", False)],
+        )
+
+    def test_wheel_switch_binding_toggles_once_per_notch(self):
+        started = []
+        stopped = []
+        manager = HotkeyManager()
+        manager.global_disabled = False
+        manager.is_mouse_over_window = lambda: False
+        manager.register(
+            "wheel", lambda _generation: started.append("start"), TriggerMode.SWITCH,
+            lambda _generation: stopped.append("stop"), binding_id="macro",
+        )
+        manager._dispatch_physical_event("wheel", True)
+        manager._dispatch_physical_event("wheel", False)
+        self.assertEqual(started, ["start"])
+        self.assertEqual(stopped, [])
+        manager._dispatch_physical_event("wheel", True)
+        manager._dispatch_physical_event("wheel", False)
+        self.assertEqual(started, ["start"])
+        self.assertEqual(stopped, ["stop"])
+        manager._dispatch_physical_event("wheel", True)
+        self.assertEqual(started, ["start", "start"])
+
     def test_raw_windows_vk_is_stable_under_ime_and_ignores_processkey(self):
         manager = HotkeyManager()
         queued = []

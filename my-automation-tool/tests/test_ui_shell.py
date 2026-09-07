@@ -963,6 +963,69 @@ class UiShellTests(unittest.TestCase):
             manager.clear_pending_events.assert_called()
             window.deleteLater()
 
+    def test_wheel_checkbox_disables_hotkey_and_rebinds_to_wheel(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "wheel.py"
+            target.write_text(VALID_MACRO, encoding="utf-8")
+            manager = Mock()
+            manager.clear_pending_events.return_value = 0
+            with patch("main._MACRO_ROOT", root), patch(
+                "main.HotkeyManager", return_value=manager
+            ), patch("main.OsdPopup"), patch("main.SoundEffects"):
+                window = MainWindow(PythonMacroRuntime())
+            manager.reset_mock()
+            manager.clear_pending_events.return_value = 0
+            window._trigger_table.selectRow(0)
+            window._show_selected_trigger_detail()
+            self.assertFalse(window._trigger_wheel_field.isChecked())
+            self.assertTrue(window._trigger_hotkey_field.isEnabled())
+
+            window._trigger_wheel_field.setChecked(True)
+            self.app.processEvents()
+
+            self.assertFalse(window._trigger_hotkey_field.isEnabled())
+            self.assertIn("WHEEL = True", target.read_text(encoding="utf-8"))
+            wheel_calls = [
+                call for call in manager.register.call_args_list
+                if call.args and call.args[0] == "wheel"
+            ]
+            self.assertTrue(wheel_calls)
+            self.assertTrue(
+                all(call.kwargs.get("mode") == TriggerMode.SWITCH for call in wheel_calls)
+            )
+            self.assertEqual(window._trigger_table.item(0, 2).text(), "滚轮")
+
+            window._trigger_wheel_field.setChecked(False)
+            self.app.processEvents()
+
+            self.assertTrue(window._trigger_hotkey_field.isEnabled())
+            self.assertIn("WHEEL = False", target.read_text(encoding="utf-8"))
+            self.assertEqual(window._trigger_table.item(0, 2).text(), "F9")
+            window.deleteLater()
+
+    def test_wheel_checkbox_restores_grayed_hotkey_for_saved_wheel_macro(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "wheel.py"
+            target.write_text(
+                VALID_MACRO.replace("SPEED=1", "SPEED=1\nWHEEL=True"), encoding="utf-8"
+            )
+            manager = Mock()
+            manager.clear_pending_events.return_value = 0
+            with patch("main._MACRO_ROOT", root), patch(
+                "main.HotkeyManager", return_value=manager
+            ), patch("main.OsdPopup"), patch("main.SoundEffects"):
+                window = MainWindow(PythonMacroRuntime())
+            window._trigger_table.selectRow(0)
+            window._show_selected_trigger_detail()
+
+            self.assertTrue(window._trigger_wheel_field.isChecked())
+            self.assertFalse(window._trigger_hotkey_field.isEnabled())
+            self.assertEqual(window._trigger_hotkey_field.hotkey(), "f9")
+            self.assertEqual(window._trigger_table.item(0, 2).text(), "滚轮")
+            window.deleteLater()
+
     @unittest.skip("Stage 6B 状态改为每个宏独立启用，不再唯一活动宏")
     def test_activity_status_is_unique_and_invalidated_macro_stops(self):
         with tempfile.TemporaryDirectory() as directory:

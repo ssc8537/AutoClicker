@@ -25,6 +25,7 @@ class PythonMacro:
     speed: float
     enabled: bool
     run: object
+    wheel: bool = False
 
 
 class PythonMacroRuntime:
@@ -79,6 +80,7 @@ def load_python_macro(path: str | Path) -> PythonMacro:
     count = getattr(module, "COUNT", None)
     speed = getattr(module, "SPEED", None)
     enabled = getattr(module, "ENABLED", True)
+    wheel = getattr(module, "WHEEL", False)
     run = getattr(module, "run", None)
 
     if not isinstance(name, str) or not name.strip():
@@ -95,6 +97,8 @@ def load_python_macro(path: str | Path) -> PythonMacro:
         raise PythonMacroValidationError("SPEED 必须是 0.01 至 8.0 的数字")
     if not isinstance(enabled, bool):
         raise PythonMacroValidationError("ENABLED 必须是 True 或 False")
+    if not isinstance(wheel, bool):
+        raise PythonMacroValidationError("WHEEL 必须是 True 或 False")
     if not callable(run):
         raise PythonMacroValidationError("必须定义可调用的 run(player) 函数")
     parameters = list(inspect.signature(run).parameters.values())
@@ -109,7 +113,7 @@ def load_python_macro(path: str | Path) -> PythonMacro:
         }
     ):
         raise PythonMacroValidationError("run 必须精确为 run(player)")
-    return PythonMacro(name, hotkey, mode, count, float(speed), enabled, run)
+    return PythonMacro(name, hotkey, mode, count, float(speed), enabled, run, wheel)
 
 
 def run_python_macro_once(

@@ -31,6 +31,10 @@ class _PhysicalLeftPlayer:
     def mouse_up(self, button):
         self.mouse_edges.append(("up", button))
 
+    def mouse_click(self, button, hold_ms=10):
+        self.mouse_edges.append(("down", button))
+        self.mouse_edges.append(("up", button))
+
 
 class PerfectRecoilMacroTests(unittest.TestCase):
     def test_backslash_toggles_listener_and_physical_left_controls_movement(self):
@@ -41,15 +45,20 @@ class PerfectRecoilMacroTests(unittest.TestCase):
         player = _PhysicalLeftPlayer()
         macro.run(player)
 
+        # 当前宏先补一次平A点击（等待 10ms + 点击后等 30ms），再进入压枪；
+        # 第 8 步点射重置等待 100±10ms。
         self.assertEqual(player.sleeps[0], 10)
-        self.assertTrue(90 <= player.sleeps[1] <= 110)
+        self.assertEqual(player.sleeps[1], 30)
+        self.assertTrue(90 <= player.sleeps[2] <= 110)
         self.assertEqual(len(player.moves), 9)
         self.assertTrue(all(y > 0 and duration > 0 for _x, y, duration in player.moves))
         self.assertEqual(player.mouse_edges, [
-            ("down", "left"),
+            ("down", "left"),   # 平A 点击
             ("up", "left"),
+            ("down", "left"),   # 压枪开始
+            ("up", "left"),     # 第 8 步点射重置
             ("down", "left"),
-            ("up", "left"),
+            ("up", "left"),     # 物理松开后 finally 释放
         ])
 
 

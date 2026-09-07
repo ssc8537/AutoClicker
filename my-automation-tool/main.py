@@ -727,6 +727,9 @@ class MainWindow(QMainWindow):
         self._trigger_status_field = QComboBox()
         self._trigger_status_field.addItem("启用", True)
         self._trigger_status_field.addItem("禁用", False)
+        self._trigger_wheel_field = QCheckBox("滚轮滑动")
+        self._trigger_wheel_field.setObjectName("trigger_wheel_field")
+        self._trigger_wheel_field.setToolTip("勾选后滑动滚轮一格触发一次，原热键失效")
         for label, field in (
             ("热键", self._trigger_hotkey_field),
             ("模式", self._trigger_mode_field),
@@ -736,11 +739,13 @@ class MainWindow(QMainWindow):
         ):
             form.addWidget(QLabel(label))
             form.addWidget(field)
+        form.addWidget(self._trigger_wheel_field)
         self._trigger_hotkey_field.hotkey_selected.connect(self._save_trigger_settings)
         self._trigger_mode_field.currentIndexChanged.connect(self._save_trigger_settings)
         self._trigger_count_field.valueChanged.connect(self._save_trigger_settings)
         self._trigger_speed_field.valueChanged.connect(self._save_trigger_settings)
         self._trigger_status_field.currentIndexChanged.connect(self._save_trigger_settings)
+        self._trigger_wheel_field.toggled.connect(self._on_trigger_wheel_toggled)
         layout.addWidget(detail)
         return page
 
@@ -759,7 +764,7 @@ class MainWindow(QMainWindow):
                 values = (
                     str(row + 1),
                     entry.path.stem,
-                    display_hotkey(entry.macro.hotkey),
+                    "滚轮" if entry.macro.wheel else display_hotkey(entry.macro.hotkey),
                     mode,
                     "启用" if entry.macro.enabled else "禁用",
                 )
@@ -806,6 +811,7 @@ class MainWindow(QMainWindow):
                 self._trigger_count_field,
                 self._trigger_speed_field,
                 self._trigger_status_field,
+                self._trigger_wheel_field,
             ):
                 field.blockSignals(True)
             self._trigger_hotkey_field.set_hotkey(entry.macro.hotkey)
@@ -813,14 +819,17 @@ class MainWindow(QMainWindow):
             self._trigger_count_field.setValue(entry.macro.count)
             self._trigger_speed_field.setValue(entry.macro.speed)
             self._trigger_status_field.setCurrentIndex(0 if entry.macro.enabled else 1)
+            self._trigger_wheel_field.setChecked(entry.macro.wheel)
             for field in (
                 self._trigger_hotkey_field,
                 self._trigger_mode_field,
                 self._trigger_count_field,
                 self._trigger_speed_field,
                 self._trigger_status_field,
+                self._trigger_wheel_field,
             ):
                 field.blockSignals(False)
+            self._apply_wheel_mutual_exclusion()
 
     @Slot(int, int)
     def _on_trigger_cell_clicked(self, row: int, column: int) -> None:
@@ -840,6 +849,7 @@ class MainWindow(QMainWindow):
                 count=entry.macro.count,
                 speed=entry.macro.speed,
                 enabled=enabled,
+                wheel=entry.macro.wheel,
             )
         except MacroFileError as exc:
             QMessageBox.warning(self, "保存触发设置失败", str(exc))
@@ -850,8 +860,22 @@ class MainWindow(QMainWindow):
         )
 
     def _set_trigger_fields_enabled(self, enabled: bool) -> None:
-        for field in (self._trigger_hotkey_field, self._trigger_mode_field, self._trigger_count_field, self._trigger_speed_field, self._trigger_status_field):
+        for field in (self._trigger_hotkey_field, self._trigger_mode_field, self._trigger_count_field, self._trigger_speed_field, self._trigger_status_field, self._trigger_wheel_field):
             field.setEnabled(enabled)
+        if enabled:
+            self._apply_wheel_mutual_exclusion()
+
+    @Slot(bool)
+    def _on_trigger_wheel_toggled(self, _checked: bool) -> None:
+        self._apply_wheel_mutual_exclusion()
+        self._save_trigger_settings()
+
+    def _apply_wheel_mutual_exclusion(self) -> None:
+        """勾选滚轮后原热键变灰失效；取消勾选恢复原热键编辑。"""
+        self._trigger_hotkey_field.setEnabled(
+            self._trigger_wheel_field.isEnabled()
+            and not self._trigger_wheel_field.isChecked()
+        )
 
     @Slot()
     def _save_trigger_settings(self, *_unused) -> None:
@@ -861,8 +885,9 @@ class MainWindow(QMainWindow):
         entry = self._macro_entries[rows[0].row()]
         if not entry.valid:
             return
+        wheel = self._trigger_wheel_field.isChecked()
         hotkey = self._trigger_hotkey_from_display()
-        if hotkey == self._global_hotkey:
+        if not wheel and hotkey == self._global_hotkey:
             self._trigger_hotkey_field.set_hotkey(entry.macro.hotkey)
             QMessageBox.warning(self, "保存触发设置失败", "该按键已是全局启停键，请换一个键。")
             return
@@ -876,6 +901,7 @@ class MainWindow(QMainWindow):
                 count=self._trigger_count_field.value(),
                 speed=self._trigger_speed_field.value(),
                 enabled=enabled,
+                wheel=wheel,
             )
         except MacroFileError as exc:
             QMessageBox.warning(self, "保存触发设置失败", str(exc))
@@ -907,7 +933,8 @@ class MainWindow(QMainWindow):
         conflicting = next(
             (
                 entry for entry in self._macro_entries
-                if entry.valid and entry.macro is not None and entry.macro.hotkey == hotkey
+                if entry.valid and entry.macro is not None
+                and not entry.macro.wheel and entry.macro.hotkey == hotkey
             ),
             None,
         )
@@ -988,6 +1015,12 @@ class MainWindow(QMainWindow):
         desired: dict[str, tuple[Path, str, str]] = {}
         for entry in self._macro_entries:
             if not entry.valid or entry.macro is None or not entry.macro.enabled:
+                continue
+            if getattr(entry.macro, "wheel", False):
+                # 滚轮触发与原热键互斥：注册到统一滚轮脉冲，一律切换语义，
+                # 滑一格启动一次；运行中再滑一格停止。
+                binding_id = str(entry.path)
+                desired[binding_id] = (entry.path, "wheel", "switch")
                 continue
             hotkey = entry.macro.hotkey
             if hotkey == self._global_hotkey:

@@ -2,7 +2,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.core.macro_library import scan_macro_root
+from src.core.macro_library import (
+    replace_trigger_metadata,
+    scan_macro_root,
+    validate_macro_source,
+)
 
 
 VALID = 'NAME="x"\nHOTKEY="f9"\nMODE="switch"\nCOUNT=1\nSPEED=1\ndef run(player): pass\n'
@@ -48,6 +52,38 @@ class MacroLibraryTests(unittest.TestCase):
             self.assertTrue(all(not entry.valid for entry in entries))
             self.assertIn("必须定义 run", entries[1].error)
             self.assertIn("必须是字面量", entries[0].error)
+
+    def test_wheel_metadata_defaults_false_parses_true_and_rejects_non_bool(self):
+        default = validate_macro_source(VALID)
+        self.assertFalse(default.wheel)
+        enabled = validate_macro_source(VALID.replace("SPEED=1", "SPEED=1\nWHEEL=True"))
+        self.assertTrue(enabled.wheel)
+        self.assertEqual(enabled.hotkey, "f9")
+        for invalid in ("WHEEL=1", 'WHEEL="yes"'):
+            with self.assertRaisesRegex(ValueError, "WHEEL 必须是 True 或 False"):
+                validate_macro_source(VALID.replace("SPEED=1", f"SPEED=1\n{invalid}"))
+
+    def test_hotkey_field_never_accepts_wheel_as_a_plain_key(self):
+        with self.assertRaisesRegex(ValueError, "WHEEL 元数据"):
+            validate_macro_source(VALID.replace('"f9"', '"wheel"'))
+
+    def test_replace_trigger_metadata_inserts_then_replaces_wheel_without_touching_run(self):
+        updated = replace_trigger_metadata(
+            VALID, hotkey="f9", mode="switch", count=1, speed=1, enabled=True, wheel=True
+        )
+        self.assertIn("WHEEL = True", updated)
+        self.assertIn("def run(player): pass", updated)
+        self.assertTrue(validate_macro_source(updated).wheel)
+        restored = replace_trigger_metadata(
+            updated, hotkey="f9", mode="switch", count=1, speed=1, enabled=True, wheel=False
+        )
+        self.assertIn("WHEEL = False", restored)
+        self.assertFalse(validate_macro_source(restored).wheel)
+        with self.assertRaisesRegex(ValueError, "WHEEL 必须是 True 或 False"):
+            replace_trigger_metadata(
+                VALID, hotkey="f9", mode="switch", count=1, speed=1,
+                enabled=True, wheel=1,
+            )
 
     def test_allows_f12_and_duplicate_hotkeys_but_rejects_unknown_keys(self):
         with tempfile.TemporaryDirectory() as directory:

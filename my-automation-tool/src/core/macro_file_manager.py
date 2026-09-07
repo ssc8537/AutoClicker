@@ -24,6 +24,7 @@ MODE = "down"
 COUNT = 1
 SPEED = 1.0
 ENABLED = True
+WHEEL = False
 
 
 def run(player):
@@ -100,6 +101,7 @@ class MacroFileManager:
         count: int,
         speed: float,
         enabled: bool,
+        wheel: bool = False,
     ) -> None:
         """由触发页即时保存元数据，用户动作代码保持原样。"""
         current = self._owned_existing_path(path)
@@ -112,6 +114,7 @@ class MacroFileManager:
                 count=count,
                 speed=speed,
                 enabled=enabled,
+                wheel=wheel,
                 filename=str(current),
             )
         except ValueError as exc:

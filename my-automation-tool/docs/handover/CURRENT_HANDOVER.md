@@ -1,6 +1,16 @@
-# 当前交接：Stage 21 完美压枪物理左键联动已验收
+# 当前交接：Stage 22 滚轮滑动触发等待用户验收
 
 ## 当前状态
+
+2026-09-07 Stage 22 实现完成：触发页“触发详情（自动保存）”底部新增“滚轮滑动”勾选框。勾选后该宏只由滚轮触发，滑满一格（±120，上滑/下滑等价）产生一次触发脉冲，统一切换语义（滑一格启动、再滑一格停止，与宏的 MODE 无关）；原热键输入框变灰失效但保留值，触发列表热键列显示“滚轮”；取消勾选立即恢复原热键。宏文件新增可选 `WHEEL = True/False`（默认 False），`HOTKEY` 字段明确拒绝滚轮。
+
+实现链路：`src/core/input_keys.py` 定义 `WHEEL_HOTKEYS` 与“滚轮”显示名；`src/core/macro_library.py` 的 `MacroMetadata` 新增 `wheel: bool = False` 并校验；`src/core/macro_file_manager.py` 原子保存 WHEEL；`src/core/hotkey_manager.py` 在 Windows 低级鼠标钩子中识别 `WM_MOUSEWHEEL`(0x020A)，从 `mouseData` 高 16 位读取 delta，满一格发一次 down+up 脉冲进入统一 FIFO（MAPL 标记过滤不变）；`main.py` 勾选互斥、把滚轮宏注册为 `("wheel", switch)` 绑定。
+
+案例证据：`优秀案例1-Quickinput/Quickinput-main/source/src/tools/ihook.h:7-8`（VK_WHEELUP/VK_WHEELDOWN）与 `:47-48`（`WM_MOUSEWHEEL` 高 16 位 ≥0x78 / ≤0xFF88 发一次脉冲）。案例把上滑/下滑当两个独立绑定；本项目按需求统一为同一“滚轮”触发，属于有意适配，不是偏差。
+
+自动证据：2026-09-07 重跑 `py -m unittest discover -s tests`，224 项通过、7 项环境跳过；正式便携包 `dist/MyAutoPlayer/MyAutoPlayer.exe` 已于 16:33 重建（2,747,497 字节），晚于全部源码改动（16:26 前）。**当前唯一下一步是用户按 `my-automation-tool/CURRENT_ACCEPTANCE.md` 进行 Windows 人工验收；用户明确说通过前不得写“已验收”。**
+
+## Stage 21 归档状态（历史）
 
 2026-08-14 用户确认 Stage 21 全部验收通过。项目新增只读 `player.is_physical_pressed(key)`：它读取 Windows 全局钩子确认的真实物理 down/up，程序自身带 `MAPL` 标记的模拟输入不会写入该状态。`macros/z-完美压枪宏.py` 保持 `HOTKEY='backslash'`，使用 `MODE='switch'`、`COUNT=0`：按一次反斜杠开启监听；物理左键未按时低频等待，按住时执行压枪，松开后停止移动并继续等待；再按一次反斜杠完全停止。
 
@@ -20,7 +30,7 @@ Stage 20 已完成源码、自动测试、文档同步、正式便携 EXE 构建
 
 用户已明确确认Stage 19D历史录像浏览、按键记录窗单行临时输入框以及此前全部功能验收通过。2026-07-23 用户再次明确授权把当前完整节点发布到GitHub默认主干`master`；发布使用普通提交，禁止强推。最终准确SHA直接读取`git log -1`或远端`refs/heads/master`，上一归档回退点仍为`a9029a8`。
 
-当前文档只保留各自职责明确的入口：根`PRODUCT_REQUIREMENTS.md`保存当前真实需求，`PROJECT_ROADMAP.md`保存阶段状态，`README.md`与`SETUP_GUIDE.md`面向下载者，本文面向下一位AI，`native-replay/BUILDING.md`与`THIRD_PARTY_NOTICES.md`保存可复现构建和许可。`CURRENT_ACCEPTANCE.md`保存本次已通过的完美压枪物理左键联动教程。
+当前文档只保留各自职责明确的入口：根`PRODUCT_REQUIREMENTS.md`保存当前真实需求，`PROJECT_ROADMAP.md`保存阶段状态，`README.md`与`SETUP_GUIDE.md`面向下载者，本文面向下一位AI，`native-replay/BUILDING.md`与`THIRD_PARTY_NOTICES.md`保存可复现构建和许可。`CURRENT_ACCEPTANCE.md`保存当前待验收的滚轮滑动触发教程（Stage 21 压枪教程已被替换，验收结论保留在 Stage 21 归档段）。
 
 2026-07-23用户实际使用后报告五项问题。本轮已实现：临时框聚焦时仅抑制宏触发/全局切换/OSD并继续保留录像旁路日志；最小化按键窗再次点击按钮会`showNormal()`恢复；桌面音轨新增0–300%增益并贯穿预检、正式录制和元数据；顶部时钟使用详情字号约2倍；30分钟导出改用单个UTF-8合并清单，不再把约180组视频/音频绝对路径放入Windows命令行。用户已确认验收教程全部通过，并授权把当前完整节点普通提交、推送到GitHub默认主干`master`。
 

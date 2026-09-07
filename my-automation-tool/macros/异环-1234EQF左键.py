@@ -1,4 +1,4 @@
-NAME = '快速-1234EQF左键'          # 宏库中显示的脚本名称
+NAME = '异环-1234EQF左键'          # 宏库中显示的脚本名称
 HOTKEY = 'mouse_back'         # 物理触发键：鼠标侧键 1（可自行修改）
 MODE = 'down'                 # 按住侧键运行，松开后立即请求停止
 COUNT = 0                     # 每次触发只执行一轮 run(player)
