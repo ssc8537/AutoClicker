@@ -8,7 +8,7 @@
 
 案例证据：`优秀案例1-Quickinput/Quickinput-main/source/src/tools/ihook.h:7-8`（VK_WHEELUP/VK_WHEELDOWN）与 `:47-48`（`WM_MOUSEWHEEL` 高 16 位 ≥0x78 / ≤0xFF88 发一次脉冲）。案例把上滑/下滑当两个独立绑定；本项目按需求统一为同一“滚轮”触发，属于有意适配，不是偏差。
 
-自动证据：2026-09-07 重跑 `py -m unittest discover -s tests`，224 项通过、7 项环境跳过；正式便携包 `dist/MyAutoPlayer/MyAutoPlayer.exe` 已于 16:33 重建（2,747,497 字节），晚于全部源码改动（16:26 前）。**当前唯一下一步是用户按 `my-automation-tool/CURRENT_ACCEPTANCE.md` 进行 Windows 人工验收；用户明确说通过前不得写“已验收”。**
+自动证据：2026-09-07 重跑 `py -m unittest discover -s tests`，224 项通过、7 项环境跳过；正式便携包 `dist/MyAutoPlayer/MyAutoPlayer.exe` 已于 16:33 重建（2,747,497 字节），晚于全部源码改动（16:26 前）。用户 2026-09-07 授权后已普通推送 `62b861a` 到 GitHub 默认主干 `master`（远端 SHA 核验一致，随源码一并同步了用户当前宏库：异环/鸣潮/自动剧情三个新宏、两处宏改名和压枪宏的起始平A改动；`macros.zip` 已加入 `.gitignore` 不上传）。**当前唯一下一步是用户按 `my-automation-tool/CURRENT_ACCEPTANCE.md` 进行 Windows 人工验收；用户明确说通过前不得写“已验收”。**
 
 ## Stage 21 归档状态（历史）
 
